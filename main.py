@@ -184,18 +184,41 @@ THEME = {
 class ReusableHTTPServer(HTTPServer):
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address):
+        # Cleanly suppress client disconnect / broken pipe tracebacks
+        pass
+
 class BridgeRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            pass
+
+    def finish(self):
+        try:
+            super().finish()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            pass
+
     def _set_cors_headers(self, status=200, content_type="application/json"):
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Access-Control-Request-Private-Network")
-        self.send_header("Access-Control-Allow-Private-Network", "true")
-        self.end_headers()
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Access-Control-Request-Private-Network")
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+            self.end_headers()
+        except Exception:
+            pass
 
     def do_OPTIONS(self):
         self._set_cors_headers(200)
