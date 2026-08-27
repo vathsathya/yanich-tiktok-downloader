@@ -12,10 +12,17 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import urllib.parse
+import urllib3
+import warnings
 import requests
 from requests.adapters import HTTPAdapter
 import webbrowser
 from PIL import Image, ImageTk
+
+# Suppress unverified HTTPS request warnings on mirrors
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
 BRIDGE_HOST = "127.0.0.1"
@@ -100,7 +107,11 @@ def extract_tiktok_metadata(url, session=None):
     sess = session or requests.Session()
     clean_url = resolve_tiktok_shortlink(url, sess)
 
-    # Tier 1: TikWM Primary API
+    # Extract Video ID if present (handles shortdrama, standard URLs, video IDs)
+    vid_id_match = re.search(r'/video/(\d+)', clean_url) or re.search(r'/episode/(\d+)', clean_url) or re.search(r'(\d{15,22})', clean_url)
+    video_id = vid_id_match.group(1) if vid_id_match else None
+
+    # Tier 1: TikWM Primary API (GET)
     try:
         api_url = f"https://www.tikwm.com/api/?url={requests.utils.quote(clean_url)}"
         resp = sess.get(api_url, timeout=(4, 16))
@@ -119,7 +130,25 @@ def extract_tiktok_metadata(url, session=None):
     except Exception:
         pass
 
-    # Tier 2: TikWM Backup Mirror
+    # Tier 2: TikWM POST Endpoint
+    try:
+        resp = sess.post("https://www.tikwm.com/api/", data={"url": clean_url, "hd": "1"}, timeout=(4, 16))
+        if resp.status_code == 200:
+            data = resp.json()
+            if data and data.get("code") == 0 and "data" in data and "play" in data["data"]:
+                d = data["data"]
+                return {
+                    "success": True,
+                    "video_url": d["play"],
+                    "cover_url": d.get("cover") or d.get("origin_cover"),
+                    "title": (d.get("title") or "").strip(),
+                    "author": d.get("author", {}).get("nickname", "TikTok Creator"),
+                    "source": "TikWM-POST"
+                }
+    except Exception:
+        pass
+
+    # Tier 3: TikWM Backup Mirror
     try:
         api_url2 = f"https://tikwm.com/api/?url={requests.utils.quote(clean_url)}"
         resp2 = sess.get(api_url2, timeout=(4, 16))
@@ -138,17 +167,95 @@ def extract_tiktok_metadata(url, session=None):
     except Exception:
         pass
 
-    # Tier 3: Tiklydown Open API Fallback
+    # Tier 4: TikWM with Canonical Video ID (if URL was shortdrama/series/embed)
+    if video_id:
+        try:
+            canon_url = f"https://www.tiktok.com/@tiktok/video/{video_id}"
+            resp_id = sess.get(f"https://www.tikwm.com/api/?url={requests.utils.quote(canon_url)}", timeout=(4, 16))
+            if resp_id.status_code == 200:
+                d_id = resp_id.json()
+                if d_id and d_id.get("code") == 0 and "data" in d_id and "play" in d_id["data"]:
+                    d = d_id["data"]
+                    return {
+                        "success": True,
+                        "video_url": d["play"],
+                        "cover_url": d.get("cover") or d.get("origin_cover"),
+                        "title": (d.get("title") or "").strip(),
+                        "author": d.get("author", {}).get("nickname", "TikTok Creator"),
+                        "source": "TikWM-Canonical"
+                    }
+        except Exception:
+            pass
+
+    # Tier 5: Direct HTML Hydration Scraper
     try:
-        api_url3 = f"https://api.tiklydown.eu.org/api/download?url={requests.utils.quote(clean_url)}"
-        resp3 = sess.get(api_url3, timeout=(5, 18))
-        if resp3.status_code == 200:
-            data3 = resp3.json()
-            video_url = data3.get("video", {}).get("noWatermark") or data3.get("video", {}).get("watermark")
-            if video_url:
+        resp_web = sess.get(clean_url, timeout=(5, 15), headers=DEFAULT_HEADERS)
+        if resp_web.status_code == 200:
+            m = re.search(r'<script\s+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', resp_web.text, re.DOTALL)
+            if m:
+                hdata = json.loads(m.group(1))
+                scopes = hdata.get("__DEFAULT_SCOPE__", {})
+                vdetail = scopes.get("webapp.video-detail", {})
+                istruct = vdetail.get("itemInfo", {}).get("itemStruct", {})
+                vinfo = istruct.get("video", {})
+                v_url = vinfo.get("playAddr") or vinfo.get("downloadAddr")
+                if v_url:
+                    return {
+                        "success": True,
+                        "video_url": v_url,
+                        "cover_url": vinfo.get("cover") or vinfo.get("originCover"),
+                        "title": istruct.get("desc", "").strip(),
+                        "author": istruct.get("author", {}).get("nickname", "TikTok Creator"),
+                        "source": "TikTok-Rehydration"
+                    }
+            play_m = re.search(r'"playAddr"\s*:\s*"([^"]+)"', resp_web.text)
+            if play_m:
+                v_url = play_m.group(1).encode('utf-8').decode('unicode-escape')
                 return {
                     "success": True,
-                    "video_url": video_url,
+                    "video_url": v_url,
+                    "cover_url": None,
+                    "title": "",
+                    "author": "TikTok Creator",
+                    "source": "TikTok-HTML-Regex"
+                }
+    except Exception:
+        pass
+
+    # Tier 6: yt-dlp Extractor Fallback
+    try:
+        import yt_dlp
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'extract_flat': False
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(clean_url, download=False)
+            if info and info.get("url"):
+                return {
+                    "success": True,
+                    "video_url": info["url"],
+                    "cover_url": info.get("thumbnail"),
+                    "title": info.get("title", ""),
+                    "author": info.get("uploader", "TikTok Creator"),
+                    "source": "yt-dlp"
+                }
+    except Exception:
+        pass
+
+    # Tier 7: Tiklydown Open API Fallback
+    try:
+        api_url3 = f"https://api.tiklydown.eu.org/api/download?url={requests.utils.quote(clean_url)}"
+        resp3 = sess.get(api_url3, timeout=(5, 18), verify=False)
+        if resp3.status_code == 200:
+            data3 = resp3.json()
+            video_url_val = data3.get("video", {}).get("noWatermark") or data3.get("video", {}).get("watermark")
+            if video_url_val:
+                return {
+                    "success": True,
+                    "video_url": video_url_val,
                     "cover_url": data3.get("video", {}).get("cover"),
                     "title": (data3.get("title") or "").strip(),
                     "author": data3.get("author", {}).get("name", "TikTok Creator"),
@@ -237,12 +344,30 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 self._set_cors_headers(404)
                 self.wfile.write(b"// Not found")
         elif self.path in ["/setup", "/", "/setup.html"]:
-            bookmarklet_path = get_resource_path("bookmarklet.txt")
-            if os.path.exists(bookmarklet_path):
-                with open(bookmarklet_path, "r", encoding="utf-8") as f:
-                    bookmarklet_code = f.read().strip()
-            else:
-                bookmarklet_code = "javascript:(async function(){alert('Please check bookmarklet.txt');})();"
+            bookmarklet_code = ""
+            extractor_path = get_resource_path("extractor.js")
+            if os.path.exists(extractor_path):
+                try:
+                    with open(extractor_path, "r", encoding="utf-8") as f:
+                        js_content = f.read()
+                    clean_lines = []
+                    for line in js_content.splitlines():
+                        sline = line.strip()
+                        if not sline or sline.startswith("//") or sline.startswith("/*") or sline.startswith("*"):
+                            continue
+                        clean_lines.append(sline)
+                    bookmarklet_code = "javascript:" + " ".join(clean_lines)
+                except Exception:
+                    pass
+
+            if not bookmarklet_code:
+                bookmarklet_path = get_resource_path("bookmarklet.txt")
+                if os.path.exists(bookmarklet_path):
+                    with open(bookmarklet_path, "r", encoding="utf-8") as f:
+                        bookmarklet_code = f.read().strip()
+            
+            if not bookmarklet_code:
+                bookmarklet_code = "javascript:(async function(){alert('Please check extractor.js');})();"
             
             escaped_code = html.escape(bookmarklet_code, quote=True)
             html_page = f"""<!DOCTYPE html>
@@ -252,16 +377,16 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     <title>TikTok Downloader - 1-Click Browser Setup</title>
     <style>
         body {{ background: #090d16; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }}
-        .card {{ background: #121929; border: 1px solid #1e293b; border-radius: 16px; padding: 32px; max-width: 620px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }}
-        h1 {{ color: #06b6d4; font-size: 24px; margin-top: 0; display: flex; align-items: center; gap: 10px; }}
-        .drag-box {{ background: #0a0f1d; border: 2px dashed #06b6d4; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0; }}
-        .drag-btn {{ display: inline-block; background: #06b6d4; color: #090d16; font-size: 16px; font-weight: bold; padding: 14px 28px; border-radius: 30px; text-decoration: none; box-shadow: 0 4px 20px rgba(6,182,212,0.4); cursor: grab; }}
+        .card {{ background: #121929; border: 1px solid #1e293b; border-radius: 16px; padding: 32px; max-width: 660px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.6); }}
+        h1 {{ color: #06b6d4; font-size: 22px; margin-top: 0; display: flex; align-items: center; gap: 10px; }}
+        .drag-box {{ background: #0a0f1d; border: 2px dashed #06b6d4; border-radius: 12px; padding: 24px; text-align: center; margin: 20px 0; }}
+        .drag-btn {{ display: inline-block; background: #06b6d4; color: #090d16; font-size: 15px; font-weight: bold; padding: 14px 28px; border-radius: 30px; text-decoration: none; box-shadow: 0 4px 20px rgba(6,182,212,0.4); cursor: grab; }}
         .drag-btn:hover {{ background: #22d3ee; }}
-        .copy-box {{ background: #0a0f1d; border: 1px solid #1e293b; border-radius: 8px; padding: 12px; margin-top: 16px; display: flex; gap: 8px; align-items: center; }}
-        .copy-input {{ background: transparent; border: none; color: #64748b; font-family: monospace; font-size: 11px; flex: 1; outline: none; }}
-        .copy-btn {{ background: #1e293b; color: #06b6d4; border: 1px solid #334155; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px; white-space: nowrap; }}
+        .copy-box {{ background: #0a0f1d; border: 1px solid #1e293b; border-radius: 8px; padding: 10px 14px; margin-top: 14px; display: flex; gap: 8px; align-items: center; }}
+        .copy-input {{ background: transparent; border: none; color: #94a3b8; font-family: monospace; font-size: 11px; flex: 1; outline: none; }}
+        .copy-btn {{ background: #1e293b; color: #06b6d4; border: 1px solid #334155; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px; white-space: nowrap; }}
         .copy-btn:hover {{ background: #334155; color: #38bdf8; }}
-        .step {{ margin: 12px 0; line-height: 1.6; color: #94a3b8; font-size: 14px; }}
+        .step {{ margin: 10px 0; line-height: 1.5; color: #94a3b8; font-size: 13.5px; }}
         .step b {{ color: #f8fafc; }}
         .badge {{ background: #064e3b; color: #34d399; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 20px; }}
         .footer {{ margin-top: 24px; border-top: 1px solid #1e293b; padding-top: 16px; display: flex; justify-content: space-between; font-size: 13px; color: #64748b; }}
@@ -271,26 +396,29 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <h1>🚀 1-Click Browser Setup</h1>
-            <span class="badge">App Connected</span>
+            <span class="badge">🟢 Bridge Online (54321)</span>
         </div>
-        <p style="color:#94a3b8; margin: 6px 0 20px 0;">Drag the button below directly into your Bookmarks Bar (<b>Ctrl + Shift + B</b>):</p>
+        <p style="color:#94a3b8; margin: 6px 0 18px 0; font-size: 14px;">
+            អូសប៊ូតុងខាងក្រោមដាក់ចូលទៅក្នុង <b>Bookmarks Bar (Ctrl + Shift + B)</b> នៃ Browser របស់អ្នក៖
+        </p>
         
         <div class="drag-box">
             <a class="drag-btn" href="{escaped_code}">🚀 Send to TikTok Downloader</a>
-            <p style="margin: 12px 0 0 0; font-size: 12px; color: #06b6d4;">👆 Drag & Drop this button to your Bookmarks bar with your mouse!</p>
+            <p style="margin: 12px 0 0 0; font-size: 12px; color: #06b6d4;">👆 Drag & Drop this button to your Chrome/Edge Bookmarks Bar</p>
         </div>
 
-        <div class="step"><b>1.</b> Press <b>Ctrl + Shift + B</b> on your browser to show the Bookmarks bar.</div>
-        <div class="step"><b>2.</b> Drag the cyan button above into the Bookmarks bar.</div>
-        <div class="step"><b>3.</b> Go to any TikTok drama series page (About tab), and click the bookmark!</div>
+        <div class="step"><b>1.</b> Press <b>Ctrl + Shift + B</b> (បង្ហាញ Bookmarks Bar នៅលើ Chrome/Edge)</div>
+        <div class="step"><b>2.</b> Drag the cyan button above into your Bookmarks Bar (អូសប៊ូតុងខាងលើដាក់ចូលរបារ Bookmark)</div>
+        <div class="step"><b>3.</b> Go to any TikTok drama episode page (បើកទំព័ររឿងភាគ TikTok)</div>
+        <div class="step"><b>4.</b> Click the bookmark to instantly scan and send all episodes to Desktop App!</div>
 
         <div class="copy-box">
             <input type="text" class="copy-input" readonly value="{escaped_code}" id="codeVal" />
-            <button class="copy-btn" id="copyBtn" onclick="copyCode()">📋 Copy Code</button>
+            <button class="copy-btn" id="copyBtn" onclick="copyCode()">📋 Copy Bookmarklet Code</button>
         </div>
         
         <div class="footer">
-            <span>Desktop Local Bridge: <b>54321</b></span>
+            <span>Desktop Local HTTP Bridge: <b>http://127.0.0.1:54321</b></span>
             <a href="https://www.tiktok.com" target="_blank" style="color:#06b6d4; text-decoration:none; font-weight:bold;">Open TikTok ↗</a>
         </div>
     </div>
@@ -302,7 +430,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             btn.textContent = '✅ Copied!';
             btn.style.color = '#34d399';
             setTimeout(() => {{
-                btn.textContent = '📋 Copy Code';
+                btn.textContent = '📋 Copy Bookmarklet Code';
                 btn.style.color = '#06b6d4';
             }}, 2000);
         }}
@@ -324,7 +452,13 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 items = []
                 series_title = ""
                 try:
-                    data = json.loads(body)
+                    if body.startswith("payload="):
+                        parsed_form = urllib.parse.parse_qs(body)
+                        raw_json = parsed_form.get("payload", [""])[0]
+                        data = json.loads(raw_json)
+                    else:
+                        data = json.loads(body)
+
                     if isinstance(data, list):
                         items = data
                     elif isinstance(data, dict):
@@ -657,11 +791,18 @@ class VideoPreviewModal(tk.Toplevel):
 def normalize_tiktok_url(url):
     """
     Normalizes a TikTok video URL to match unique video items even if tracking query parameters differ.
-    Supports standard /video/ID, mobile /v/ID.html, and standalone video IDs.
+    Supports standard /video/ID, mobile /v/ID.html, shortdrama /shortdrama/episode/SERIES_ID/EP_NUM, and standalone video IDs.
     """
     if not url or not isinstance(url, str):
         return ""
     clean = url.strip()
+    
+    # 1. Shortdrama Episode format: /shortdrama/episode/<series_id>/<ep_num>
+    m_drama = re.search(r'/shortdrama/episode/(\d+)/(\d+)', clean, re.IGNORECASE)
+    if m_drama:
+        return f"tt_shortdrama_{m_drama.group(1)}_ep_{m_drama.group(2)}"
+
+    # 2. Standard /video/<id> or /v/<id> format
     m = re.search(r'(?:/video/|/v/|item_id=)(\d{15,22})', clean)
     if not m:
         m = re.search(r'(\d{18,20})', clean)
@@ -933,8 +1074,8 @@ class TikTokDownloaderApp:
         tk.Label(log_head, text="📜 Activity", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 8, "bold")).pack(side="left")
 
         ttk.Button(log_head, text="Clear", command=self.clear_logs, style="DarkBtn.TButton").pack(side="right", padx=1)
-        ttk.Button(log_head, text="Save", command=self.save_logs, style="DarkBtn.TButton").pack(side="right", padx=1)
-        self.copy_failed_btn = ttk.Button(log_head, text="📋 Copy Failed", command=self.copy_failed_links, state="disabled", style="DarkBtn.TButton").pack(side="right", padx=1)
+        self.copy_failed_btn = ttk.Button(log_head, text="📋 Copy Failed", command=self.copy_failed_links, state="disabled", style="DarkBtn.TButton")
+        self.copy_failed_btn.pack(side="right", padx=1)
 
         log_container = tk.Frame(log_card, bg=THEME["log_bg"], highlightbackground=THEME["card_border"], highlightthickness=1)
         log_container.pack(fill="x", expand=True)
@@ -1043,18 +1184,24 @@ class TikTokDownloaderApp:
         if not items:
             return
         
-        # 1. Normalize items into a uniform structure: [{"episode": int/None, "url": str}]
+        # 1. Normalize items into a uniform structure: [{"episode": int/None, "url": str, "video_url": str, "cover_url": str}]
         parsed_entries = []
         for it in items:
             if isinstance(it, dict):
                 url = it.get("url", "").strip()
                 ep_num = it.get("episode")
+                vid_url = (it.get("video_url") or it.get("direct_url") or "").strip()
+                if vid_url.startswith("blob:") or not vid_url.startswith(("http://", "https://")):
+                    vid_url = ""
+                cov_url = (it.get("cover_url") or "").strip()
+                if cov_url.startswith("blob:") or not cov_url.startswith(("http://", "https://")):
+                    cov_url = ""
                 if url:
-                    parsed_entries.append({"episode": ep_num, "url": url})
+                    parsed_entries.append({"episode": ep_num, "url": url, "video_url": vid_url, "cover_url": cov_url})
             elif isinstance(it, str):
                 url = it.strip()
                 if url and url.startswith("http"):
-                    parsed_entries.append({"episode": None, "url": url})
+                    parsed_entries.append({"episode": None, "url": url, "video_url": "", "cover_url": ""})
 
         if not parsed_entries:
             return
@@ -1123,6 +1270,8 @@ class TikTokDownloaderApp:
                 "status": "Pending",
                 "size": "--",
                 "url": entry["url"],
+                "video_url": entry.get("video_url", ""),
+                "cover_url": entry.get("cover_url", ""),
                 "filename": fname,
                 "filepath": os.path.join(self.save_dir_var.get().strip(), fname),
                 "cover_path": os.path.join(self.save_dir_var.get().strip(), f"{prefix}{ep_str}.jpg")
@@ -1312,6 +1461,9 @@ class TikTokDownloaderApp:
 
     def clear_all_items(self):
         self.queue_items = []
+        self.failed_items = []
+        if hasattr(self, "copy_failed_btn") and self.copy_failed_btn:
+            self.copy_failed_btn.config(state="disabled")
         self.refresh_tree()
 
     # ----------------- Local Bridge Handlers -----------------
@@ -1500,6 +1652,8 @@ class TikTokDownloaderApp:
         self.start_time = time.time()
 
         self.toggle_download_btn.config(text="⏹ Stop Download", style="DangerBtn.TButton")
+        if hasattr(self, "copy_failed_btn") and self.copy_failed_btn:
+            self.copy_failed_btn.config(state="disabled")
         self.progress_bar.set_progress(0, total_count, "0.0% (0/{})".format(total_count))
 
         while not self.download_queue.empty():
@@ -1608,15 +1762,24 @@ class TikTokDownloaderApp:
                     time.sleep(jitter_sleep)
 
                 try:
-                    meta_res = extract_tiktok_metadata(url, session=worker_session)
-                    if not meta_res.get("success"):
-                        last_err = meta_res.get("error", "Failed to extract video stream URL")
-                        continue
+                    video_url = item.get("video_url", "").strip()
+                    if video_url.startswith("blob:") or not video_url.startswith(("http://", "https://")):
+                        video_url = ""
+                    cover_url = item.get("cover_url", "").strip()
+                    if cover_url.startswith("blob:") or not cover_url.startswith(("http://", "https://")):
+                        cover_url = ""
+                    raw_title = ""
+                    meta_author = "TikTok Drama"
 
-                    video_url = meta_res["video_url"]
-                    cover_url = meta_res.get("cover_url")
-                    raw_title = meta_res.get("title", "").strip()
-                    meta_author = meta_res.get("author", "TikTok Creator")
+                    if not video_url:
+                        meta_res = extract_tiktok_metadata(url, session=worker_session)
+                        if not meta_res.get("success"):
+                            last_err = meta_res.get("error", "Failed to extract video stream URL")
+                            continue
+                        video_url = meta_res["video_url"]
+                        cover_url = meta_res.get("cover_url")
+                        raw_title = meta_res.get("title", "").strip()
+                        meta_author = meta_res.get("author", "TikTok Creator")
 
                     # Determine Clean Filename from Real Video Title
                     if raw_title:
@@ -1763,7 +1926,8 @@ class TikTokDownloaderApp:
 
         failed_count = len(self.failed_items)
         if failed_count > 0:
-            self.copy_failed_btn.config(state="normal")
+            if hasattr(self, "copy_failed_btn") and self.copy_failed_btn:
+                self.copy_failed_btn.config(state="normal")
 
         self.send_desktop_notification(f"Download Completed ({self.success_count}/{self.total_count}) in {time_str}")
 
