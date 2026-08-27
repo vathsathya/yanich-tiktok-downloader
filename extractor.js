@@ -1,6 +1,6 @@
 /**
- * TikTok Drama Episode Extractor & Bridge Client (Enhanced Edition)
- * Paced scanning, auto-scroll for virtual DOM, and interactive Glassmorphism Results Dialog.
+ * TikTok Drama Episode Extractor & Bridge Client
+ * Standardized string concatenation, 0-syntax errors on any browser or bookmarklet.
  */
 (async function getTikTokEpisodesAndBridge() {
   var results = [];
@@ -17,13 +17,11 @@
     });
   };
 
-  // Remove existing modals or toasts if any
   var oldModal = document.getElementById("tt-extractor-modal");
   if (oldModal) oldModal.remove();
   var oldToast = document.getElementById("tt-scan-toast");
   if (oldToast) oldToast.remove();
 
-  // Floating live scanner toast
   var toast = document.createElement("div");
   toast.id = "tt-scan-toast";
   toast.style.cssText = "position:fixed;top:24px;right:24px;z-index:2147483647;background:#090d16;color:#06b6d4;border:1px solid #1e293b;border-radius:30px;padding:12px 24px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:700;box-shadow:0 8px 30px rgba(0,0,0,0.8);display:flex;align-items:center;gap:8px;";
@@ -64,7 +62,6 @@
       await randomDelay(650, 950);
     }
 
-    // Auto-scroll episode container to mount virtualized lazy elements
     if (container && container.scrollHeight > container.clientHeight) {
       container.scrollTop = container.scrollHeight;
       await randomDelay(150, 300);
@@ -124,9 +121,27 @@
     dramaTitle = (document.title || "").replace(/\|.*$/, "").trim() || "TikTok Drama";
   }
 
-  // Function to send to Desktop App Bridge
   var sendToBridge = async function(statusElem) {
     if (statusElem) statusElem.innerHTML = "⏳ Sending to Desktop App (127.0.0.1:54321)...";
+
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        var res = await new Promise(function(resolve) {
+          chrome.runtime.sendMessage({
+            action: "send_to_bridge",
+            payload: { title: dramaTitle, total_episodes: results.length, episodes: results, urls: urls }
+          }, resolve);
+        });
+        if (res && res.success && res.data && res.data.status === "success") {
+          if (statusElem) {
+            statusElem.innerHTML = "🟢 <b>Sent successfully!</b> Desktop App has loaded " + results.length + " episodes.";
+            statusElem.style.color = "#34d399";
+          }
+          return true;
+        }
+      } catch (e) {}
+    }
+
     try {
       var resp = await fetch("http://127.0.0.1:54321/api/receive-links", {
         method: "POST",
@@ -150,40 +165,34 @@
     return false;
   };
 
-  // Build Floating Neon Result Dialog
   var modal = document.createElement("div");
   modal.id = "tt-extractor-modal";
   modal.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;background:#0d1322;color:#f8fafc;border:1px solid #1e293b;border-radius:16px;padding:24px;width:90%;max-width:540px;box-shadow:0 25px 60px rgba(0,0,0,0.9);font-family:system-ui,-apple-system,sans-serif;";
   
-  modal.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid #1e293b;padding-bottom:12px;">
-      <div>
-        <h2 style="margin:0;font-size:18px;color:#06b6d4;display:flex;align-items:center;gap:8px;">
-          <span>🎬</span> <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px;">${dramaTitle}</span>
-        </h2>
-        <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Scanned <b>${results.length}</b> episodes successfully</div>
-      </div>
-      <button id="tt-modal-close" style="background:#1e293b;color:#94a3b8;border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;font-weight:bold;">✕</button>
-    </div>
-
-    <div id="tt-bridge-status" style="font-size:13px;padding:10px 14px;background:#090d16;border:1px solid #1e293b;border-radius:8px;margin-bottom:14px;color:#94a3b8;">
-      ⏳ Connecting to Desktop App...
-    </div>
-
-    <textarea id="tt-urls-area" readonly style="width:100%;height:140px;background:#070b14;color:#38bdf8;border:1px solid #1e293b;border-radius:8px;padding:10px;font-family:monospace;font-size:11px;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:16px;"></textarea>
-
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button id="tt-btn-send" style="flex:1;min-width:140px;background:#06b6d4;color:#090d16;border:none;padding:10px 16px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;box-shadow:0 4px 15px rgba(6,182,212,0.3);">
-        🚀 Send to Desktop App
-      </button>
-      <button id="tt-btn-copy" style="flex:1;min-width:130px;background:#1e293b;color:#f8fafc;border:1px solid #334155;padding:10px 16px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;">
-        📋 Copy All URLs
-      </button>
-      <button id="tt-btn-download" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;padding:10px 14px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;" title="Download as text file">
-        💾 Save .txt
-      </button>
-    </div>
-  `;
+  modal.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid #1e293b;padding-bottom:12px;">'
+    + '<div>'
+    + '<h2 style="margin:0;font-size:18px;color:#06b6d4;display:flex;align-items:center;gap:8px;">'
+    + '<span>🎬</span> <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px;">' + dramaTitle + '</span>'
+    + '</h2>'
+    + '<div style="font-size:12px;color:#94a3b8;margin-top:4px;">Scanned <b>' + results.length + '</b> episodes successfully</div>'
+    + '</div>'
+    + '<button id="tt-modal-close" style="background:#1e293b;color:#94a3b8;border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;font-weight:bold;">✕</button>'
+    + '</div>'
+    + '<div id="tt-bridge-status" style="font-size:13px;padding:10px 14px;background:#090d16;border:1px solid #1e293b;border-radius:8px;margin-bottom:14px;color:#94a3b8;">'
+    + '⏳ Connecting to Desktop App...'
+    + '</div>'
+    + '<textarea id="tt-urls-area" readonly style="width:100%;height:140px;background:#070b14;color:#38bdf8;border:1px solid #1e293b;border-radius:8px;padding:10px;font-family:monospace;font-size:11px;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:16px;"></textarea>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+    + '<button id="tt-btn-send" style="flex:1;min-width:140px;background:#06b6d4;color:#090d16;border:none;padding:10px 16px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;box-shadow:0 4px 15px rgba(6,182,212,0.3);">'
+    + '🚀 Send to Desktop App'
+    + '</button>'
+    + '<button id="tt-btn-copy" style="flex:1;min-width:130px;background:#1e293b;color:#f8fafc;border:1px solid #334155;padding:10px 16px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;">'
+    + '📋 Copy All URLs'
+    + '</button>'
+    + '<button id="tt-btn-download" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;padding:10px 14px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;" title="Download as text file">'
+    + '💾 Save .txt'
+    + '</button>'
+    + '</div>';
 
   document.body.appendChild(modal);
 
@@ -197,7 +206,6 @@
   urlsArea.value = urls.join("\n");
 
   btnClose.onclick = function() { modal.remove(); };
-
   btnSend.onclick = function() { sendToBridge(statusBox); };
 
   btnCopy.onclick = function() {
@@ -223,10 +231,5 @@
     a.click();
   };
 
-  // Attempt initial auto-send
-  var sent = await sendToBridge(statusBox);
-  if (sent) {
-    // If sent automatically, highlight and show confirmation
-    urlsArea.style.borderColor = "#059669";
-  }
+  await sendToBridge(statusBox);
 })();
