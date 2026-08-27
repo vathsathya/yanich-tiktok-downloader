@@ -1,13 +1,16 @@
 {
   "manifest_version": 3,
   "name": "TikTok Drama 1-Click Downloader Bridge",
-  "version": "1.0",
-  "description": "1-Click Send TikTok drama episodes directly to your local Python Desktop App.",
+  "version": "1.1",
+  "description": "1-Click Send TikTok drama episodes directly to your local Desktop App.",
   "permissions": ["activeTab"],
   "host_permissions": [
     "*://*.tiktok.com/*",
     "http://127.0.0.1:54321/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["*://*.tiktok.com/*"],
@@ -19,3 +22,4 @@
     "default_title": "TikTok Drama Downloader Bridge"
   }
 }
+

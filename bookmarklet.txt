@@ -1,1 +1,232 @@
-javascript:(async function() { var results = []; var randomDelay = function(min, max) { return new Promise(function(resolve) { var ms = Math.floor(Math.random() * (max - min + 1)) + min; setTimeout(resolve, ms); }); }; var triggerClick = function(el) { ["mousedown", "mouseup", "click"].forEach(function(t) { el.dispatchEvent(new MouseEvent(t, { view: window, bubbles: true, cancelable: true })); }); }; var toast = document.getElementById("tt-scan-toast"); if (!toast) { toast = document.createElement("div"); toast.id = "tt-scan-toast"; toast.style.cssText = "position:fixed;top:24px;right:24px;z-index:99999999;background:#090d16;color:#06b6d4;border:1px solid #1e293b;border-radius:30px;padding:12px 24px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:700;box-shadow:0 8px 30px rgba(0,0,0,0.8);display:flex;align-items:center;gap:8px;"; document.body.appendChild(toast); } var updateToast = function(msg) { if (toast) toast.innerHTML = msg; }; updateToast("<span>⏳</span> <span>Locating Episodes...</span>"); var allElems = Array.from(document.querySelectorAll("*")); var header = allElems.find(function(e) { return (e.textContent || "").trim() === "Episodes" && e.children.length === 0; }); if (!header) { if (toast) toast.remove(); alert("⚠️ Episodes section not found! Please make sure you are on the About tab of a TikTok drama."); return; } var container = header.parentElement; var getTabs = function() { return Array.from(container.querySelectorAll("*")).filter(function(e) { return /^\d+-\d+$/.test((e.textContent || "").trim()) && e.children.length === 0; }); }; var tabs = getTabs(); if (tabs.length === 0) tabs = [null]; for (var t = 0; t < tabs.length; t++) { var curr = getTabs(); if (curr[t]) { updateToast("<span>📑</span> <span>Tab " + (t + 1) + "/" + tabs.length + "...</span>"); triggerClick(curr[t]); await randomDelay(650, 950); } if (container && container.scrollHeight > container.clientHeight) { container.scrollTop = container.scrollHeight; await randomDelay(150, 300); container.scrollTop = 0; await randomDelay(100, 200); } var eps = Array.from(container.querySelectorAll("*")).filter(function(e) { var txt = (e.textContent || "").trim(); return /^\d+$/.test(txt) && e.children.length === 0 && e.getBoundingClientRect().height > 0 && parseInt(txt, 10) <= 500; }); for (var i = 0; i < eps.length; i++) { var el = eps[i]; var num = parseInt((el.textContent || "").trim(), 10); updateToast("<span>⏳</span> <span>Scanning Episode " + num + " (Paced)...</span>"); var plink = el.closest("a") || el.querySelector("a") || (el.parentElement ? el.parentElement.closest("a") : null); var url = plink ? plink.href : ""; if (!url) { triggerClick(el); await randomDelay(550, 850); url = window.location.href; } else { await randomDelay(100, 200); } var exists = false; for (var k = 0; k < results.length; k++) { if (results[k].episode === num) { exists = true; break; } } if (url && !exists) { results.push({ episode: num, url: url, label: "Ep " + num }); } } } results.sort(function(a, b) { return a.episode - b.episode; }); var urls = results.map(function(item) { return item.url; }); var dramaTitle = ""; var selectors = ["[data-e2e=\"series-title\"]", "h1", "h2", ".series-title", ".drama-title"]; for (var s = 0; s < selectors.length; s++) { var selEl = document.querySelector(selectors[s]); if (selEl && (selEl.textContent || "").trim()) { var txtVal = (selEl.textContent || "").trim(); if (txtVal && !/^\d+$/.test(txtVal) && txtVal !== "Episodes" && txtVal !== "About") { dramaTitle = txtVal; break; } } } if (!dramaTitle) { dramaTitle = (document.title || "").replace(/\|.*$/, "").trim(); } updateToast("<span>📤</span> <span>Sending " + results.length + " Episodes to App...</span>"); try { var resp = await fetch("http://127.0.0.1:54321/api/receive-links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: dramaTitle, total_episodes: results.length, episodes: results, urls: urls }) }); var d = await resp.json(); if (d.status === "success") { updateToast("<span style=\"color:#34d399;\">✅ Sent " + results.length + " Episodes to App!</span>"); setTimeout(function() { if (toast) toast.remove(); }, 3000); return; } } catch (err) {} if (toast) toast.remove(); navigator.clipboard.writeText(urls.join(String.fromCharCode(10))); alert("Scanned " + results.length + " episodes! (Copied to clipboard because Desktop App is offline)"); })()
+javascript:/**
+ * TikTok Drama Episode Extractor & Bridge Client (Enhanced Edition)
+ * Paced scanning, auto-scroll for virtual DOM, and interactive Glassmorphism Results Dialog.
+ */
+(async function getTikTokEpisodesAndBridge() {
+  var results = [];
+  var randomDelay = function(min, max) {
+    return new Promise(function(resolve) {
+      var ms = Math.floor(Math.random() * (max - min + 1)) + min;
+      setTimeout(resolve, ms);
+    });
+  };
+
+  var triggerClick = function(el) {
+    ["mousedown", "mouseup", "click"].forEach(function(t) {
+      el.dispatchEvent(new MouseEvent(t, { view: window, bubbles: true, cancelable: true }));
+    });
+  };
+
+  // Remove existing modals or toasts if any
+  var oldModal = document.getElementById("tt-extractor-modal");
+  if (oldModal) oldModal.remove();
+  var oldToast = document.getElementById("tt-scan-toast");
+  if (oldToast) oldToast.remove();
+
+  // Floating live scanner toast
+  var toast = document.createElement("div");
+  toast.id = "tt-scan-toast";
+  toast.style.cssText = "position:fixed;top:24px;right:24px;z-index:2147483647;background:#090d16;color:#06b6d4;border:1px solid #1e293b;border-radius:30px;padding:12px 24px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:700;box-shadow:0 8px 30px rgba(0,0,0,0.8);display:flex;align-items:center;gap:8px;";
+  document.body.appendChild(toast);
+
+  var updateToast = function(msg) {
+    if (toast) toast.innerHTML = msg;
+  };
+
+  updateToast("<span>⏳</span> <span>Locating Episodes...</span>");
+
+  var allElems = Array.from(document.querySelectorAll("*"));
+  var header = allElems.find(function(e) {
+    return (e.textContent || "").trim() === "Episodes" && e.children.length === 0;
+  });
+
+  if (!header) {
+    if (toast) toast.remove();
+    alert("⚠️ Episodes section not found! Please open the 'About' tab of a TikTok drama series.");
+    return;
+  }
+
+  var container = header.parentElement;
+  var getTabs = function() {
+    return Array.from(container.querySelectorAll("*")).filter(function(e) {
+      return /^\d+-\d+$/.test((e.textContent || "").trim()) && e.children.length === 0;
+    });
+  };
+
+  var tabs = getTabs();
+  if (tabs.length === 0) tabs = [null];
+
+  for (var t = 0; t < tabs.length; t++) {
+    var curr = getTabs();
+    if (curr[t]) {
+      updateToast("<span>📑</span> <span>Switching Episode Tab " + (t + 1) + "/" + tabs.length + "...</span>");
+      triggerClick(curr[t]);
+      await randomDelay(650, 950);
+    }
+
+    // Auto-scroll episode container to mount virtualized lazy elements
+    if (container && container.scrollHeight > container.clientHeight) {
+      container.scrollTop = container.scrollHeight;
+      await randomDelay(150, 300);
+      container.scrollTop = 0;
+      await randomDelay(100, 200);
+    }
+
+    var eps = Array.from(container.querySelectorAll("*")).filter(function(e) {
+      var txt = (e.textContent || "").trim();
+      return /^\d+$/.test(txt) && e.children.length === 0 && e.getBoundingClientRect().height > 0 && parseInt(txt, 10) <= 500;
+    });
+
+    for (var i = 0; i < eps.length; i++) {
+      var el = eps[i];
+      var num = parseInt((el.textContent || "").trim(), 10);
+      var plink = el.closest("a") || el.querySelector("a") || (el.parentElement ? el.parentElement.closest("a") : null);
+      var url = plink ? plink.href : "";
+
+      updateToast("<span>⏳</span> <span>Scanning Episode " + num + " (" + (i + 1) + "/" + eps.length + ")...</span>");
+
+      if (!url) {
+        triggerClick(el);
+        await randomDelay(550, 850);
+        url = window.location.href;
+      } else {
+        await randomDelay(80, 160);
+      }
+
+      var exists = false;
+      for (var k = 0; k < results.length; k++) {
+        if (results[k].episode === num) { exists = true; break; }
+      }
+      if (url && !exists) {
+        results.push({ episode: num, url: url, label: "Ep " + num });
+      }
+    }
+  }
+
+  if (toast) toast.remove();
+
+  results.sort(function(a, b) { return a.episode - b.episode; });
+  var urls = results.map(function(item) { return item.url; });
+
+  var dramaTitle = "";
+  var selectors = ["[data-e2e=\"series-title\"]", "h1", "h2", ".series-title", ".drama-title"];
+  for (var s = 0; s < selectors.length; s++) {
+    var selEl = document.querySelector(selectors[s]);
+    if (selEl && (selEl.textContent || "").trim()) {
+      var txtVal = (selEl.textContent || "").trim();
+      if (txtVal && !/^\d+$/.test(txtVal) && txtVal !== "Episodes" && txtVal !== "About") {
+        dramaTitle = txtVal;
+        break;
+      }
+    }
+  }
+  if (!dramaTitle) {
+    dramaTitle = (document.title || "").replace(/\|.*$/, "").trim() || "TikTok Drama";
+  }
+
+  // Function to send to Desktop App Bridge
+  var sendToBridge = async function(statusElem) {
+    if (statusElem) statusElem.innerHTML = "⏳ Sending to Desktop App (127.0.0.1:54321)...";
+    try {
+      var resp = await fetch("http://127.0.0.1:54321/api/receive-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: dramaTitle, total_episodes: results.length, episodes: results, urls: urls })
+      });
+      var d = await resp.json();
+      if (d.status === "success") {
+        if (statusElem) {
+          statusElem.innerHTML = "🟢 <b>Sent successfully!</b> Desktop App has loaded " + results.length + " episodes.";
+          statusElem.style.color = "#34d399";
+        }
+        return true;
+      }
+    } catch (err) {
+      if (statusElem) {
+        statusElem.innerHTML = "🟡 <b>Desktop App is offline or PNA blocked.</b> Please copy links below or start the app.";
+        statusElem.style.color = "#fbbf24";
+      }
+    }
+    return false;
+  };
+
+  // Build Floating Neon Result Dialog
+  var modal = document.createElement("div");
+  modal.id = "tt-extractor-modal";
+  modal.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;background:#0d1322;color:#f8fafc;border:1px solid #1e293b;border-radius:16px;padding:24px;width:90%;max-width:540px;box-shadow:0 25px 60px rgba(0,0,0,0.9);font-family:system-ui,-apple-system,sans-serif;";
+  
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid #1e293b;padding-bottom:12px;">
+      <div>
+        <h2 style="margin:0;font-size:18px;color:#06b6d4;display:flex;align-items:center;gap:8px;">
+          <span>🎬</span> <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px;">${dramaTitle}</span>
+        </h2>
+        <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Scanned <b>${results.length}</b> episodes successfully</div>
+      </div>
+      <button id="tt-modal-close" style="background:#1e293b;color:#94a3b8;border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;font-weight:bold;">✕</button>
+    </div>
+
+    <div id="tt-bridge-status" style="font-size:13px;padding:10px 14px;background:#090d16;border:1px solid #1e293b;border-radius:8px;margin-bottom:14px;color:#94a3b8;">
+      ⏳ Connecting to Desktop App...
+    </div>
+
+    <textarea id="tt-urls-area" readonly style="width:100%;height:140px;background:#070b14;color:#38bdf8;border:1px solid #1e293b;border-radius:8px;padding:10px;font-family:monospace;font-size:11px;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:16px;"></textarea>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="tt-btn-send" style="flex:1;min-width:140px;background:#06b6d4;color:#090d16;border:none;padding:10px 16px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;box-shadow:0 4px 15px rgba(6,182,212,0.3);">
+        🚀 Send to Desktop App
+      </button>
+      <button id="tt-btn-copy" style="flex:1;min-width:130px;background:#1e293b;color:#f8fafc;border:1px solid #334155;padding:10px 16px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;">
+        📋 Copy All URLs
+      </button>
+      <button id="tt-btn-download" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;padding:10px 14px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;" title="Download as text file">
+        💾 Save .txt
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  var urlsArea = document.getElementById("tt-urls-area");
+  var statusBox = document.getElementById("tt-bridge-status");
+  var btnSend = document.getElementById("tt-btn-send");
+  var btnCopy = document.getElementById("tt-btn-copy");
+  var btnDownload = document.getElementById("tt-btn-download");
+  var btnClose = document.getElementById("tt-modal-close");
+
+  urlsArea.value = urls.join("\n");
+
+  btnClose.onclick = function() { modal.remove(); };
+
+  btnSend.onclick = function() { sendToBridge(statusBox); };
+
+  btnCopy.onclick = function() {
+    urlsArea.select();
+    try {
+      navigator.clipboard.writeText(urls.join("\n"));
+    } catch (e) {
+      document.execCommand("copy");
+    }
+    btnCopy.textContent = "✅ Copied!";
+    btnCopy.style.color = "#34d399";
+    setTimeout(function() {
+      btnCopy.textContent = "📋 Copy All URLs";
+      btnCopy.style.color = "#f8fafc";
+    }, 2000);
+  };
+
+  btnDownload.onclick = function() {
+    var blob = new Blob([urls.join("\n")], { type: "text/plain;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (dramaTitle.replace(/[^a-zA-Z0-9_\u1780-\u17FF]/g, "_") || "TikTok_Episodes") + ".txt";
+    a.click();
+  };
+
+  // Attempt initial auto-send
+  var sent = await sendToBridge(statusBox);
+  if (sent) {
+    // If sent automatically, highlight and show confirmation
+    urlsArea.style.borderColor = "#059669";
+  }
+})();

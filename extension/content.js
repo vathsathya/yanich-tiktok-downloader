@@ -1,216 +1,242 @@
 /**
- * TikTok Drama Downloader Content Script (Manifest V3)
- * Human-like Randomized Delays & Live Scanning Feedback.
+ * TikTok Drama Episode Extractor & Bridge Client (Chrome Extension Content Script)
  */
-(function initTikTokDramaExtension() {
-  const BRIDGE_URL = 'http://127.0.0.1:54321';
-  let floatingBtn = null;
-
-  const randomDelay = (min, max) => new Promise(resolve => {
-    const ms = Math.floor(Math.random() * (max - min + 1)) + min;
-    setTimeout(resolve, ms);
-  });
-
-  const triggerClick = (el) => {
-    ['mousedown', 'mouseup', 'click'].forEach(eventType => {
-      el.dispatchEvent(new MouseEvent(eventType, { view: window, bubbles: true, cancelable: true }));
+(async function getTikTokEpisodesAndBridge() {
+  var results = [];
+  var randomDelay = function(min, max) {
+    return new Promise(function(resolve) {
+      var ms = Math.floor(Math.random() * (max - min + 1)) + min;
+      setTimeout(resolve, ms);
     });
   };
 
-  function createFloatingButton() {
-    if (document.getElementById('tt-drama-dl-btn')) return;
+  var triggerClick = function(el) {
+    ["mousedown", "mouseup", "click"].forEach(function(t) {
+      el.dispatchEvent(new MouseEvent(t, { view: window, bubbles: true, cancelable: true }));
+    });
+  };
 
-    floatingBtn = document.createElement('div');
-    floatingBtn.id = 'tt-drama-dl-btn';
-    floatingBtn.style.cssText = `
-      position: fixed;
-      bottom: 28px;
-      right: 28px;
-      z-index: 9999999;
-      background: #090d16;
-      color: #06b6d4;
-      border: 1px solid #1e293b;
-      padding: 12px 20px;
-      border-radius: 30px;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      cursor: pointer;
-      font-family: system-ui, -apple-system, sans-serif;
-      font-size: 14px;
-      font-weight: 700;
-      transition: all 0.2s ease;
-      user-select: none;
-    `;
-    floatingBtn.innerHTML = `<span>🚀</span> <span>Send Drama to App</span>`;
+  var oldModal = document.getElementById("tt-extractor-modal");
+  if (oldModal) oldModal.remove();
+  var oldToast = document.getElementById("tt-scan-toast");
+  if (oldToast) oldToast.remove();
 
-    floatingBtn.onmouseenter = () => {
-      floatingBtn.style.transform = 'scale(1.05)';
-      floatingBtn.style.borderColor = '#06b6d4';
-      floatingBtn.style.boxShadow = '0 8px 35px rgba(6,182,212,0.4)';
-    };
-    floatingBtn.onmouseleave = () => {
-      floatingBtn.style.transform = 'scale(1)';
-      floatingBtn.style.borderColor = '#1e293b';
-      floatingBtn.style.boxShadow = '0 8px 30px rgba(0,0,0,0.7)';
-    };
+  var toast = document.createElement("div");
+  toast.id = "tt-scan-toast";
+  toast.style.cssText = "position:fixed;top:24px;right:24px;z-index:2147483647;background:#090d16;color:#06b6d4;border:1px solid #1e293b;border-radius:30px;padding:12px 24px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:700;box-shadow:0 8px 30px rgba(0,0,0,0.8);display:flex;align-items:center;gap:8px;";
+  document.body.appendChild(toast);
 
-    floatingBtn.onclick = runExtractionAndSend;
-    document.body.appendChild(floatingBtn);
+  var updateToast = function(msg) {
+    if (toast) toast.innerHTML = msg;
+  };
+
+  updateToast("<span>⏳</span> <span>Locating Episodes...</span>");
+
+  var allElems = Array.from(document.querySelectorAll("*"));
+  var header = allElems.find(function(e) {
+    return (e.textContent || "").trim() === "Episodes" && e.children.length === 0;
+  });
+
+  if (!header) {
+    if (toast) toast.remove();
+    alert("⚠️ Episodes section not found! Please open the 'About' tab of a TikTok drama series.");
+    return;
   }
 
-  async function runExtractionAndSend() {
-    if (!floatingBtn) return;
-    floatingBtn.innerHTML = `<span>⏳</span> <span>Locating Episodes...</span>`;
+  var container = header.parentElement;
+  var getTabs = function() {
+    return Array.from(container.querySelectorAll("*")).filter(function(e) {
+      return /^\d+-\d+$/.test((e.textContent || "").trim()) && e.children.length === 0;
+    });
+  };
 
-    try {
-      const results = [];
+  var tabs = getTabs();
+  if (tabs.length === 0) tabs = [null];
 
-      // 1. Find Episodes Section
-      const episodeHeader = Array.from(document.querySelectorAll('*'))
-        .find(el => el.textContent?.trim() === 'Episodes' && el.children.length === 0);
+  for (var t = 0; t < tabs.length; t++) {
+    var curr = getTabs();
+    if (curr[t]) {
+      updateToast("<span>📑</span> <span>Switching Episode Tab " + (t + 1) + "/" + tabs.length + "...</span>");
+      triggerClick(curr[t]);
+      await randomDelay(650, 950);
+    }
 
-      if (!episodeHeader) {
-        alert('⚠️ Episodes section not found! Please make sure you are on the "About" tab of a TikTok Drama series.');
-        floatingBtn.innerHTML = `<span>🚀</span> <span>Send Drama to App</span>`;
-        return;
+    if (container && container.scrollHeight > container.clientHeight) {
+      container.scrollTop = container.scrollHeight;
+      await randomDelay(150, 300);
+      container.scrollTop = 0;
+      await randomDelay(100, 200);
+    }
+
+    var eps = Array.from(container.querySelectorAll("*")).filter(function(e) {
+      var txt = (e.textContent || "").trim();
+      return /^\d+$/.test(txt) && e.children.length === 0 && e.getBoundingClientRect().height > 0 && parseInt(txt, 10) <= 500;
+    });
+
+    for (var i = 0; i < eps.length; i++) {
+      var el = eps[i];
+      var num = parseInt((el.textContent || "").trim(), 10);
+      var plink = el.closest("a") || el.querySelector("a") || (el.parentElement ? el.parentElement.closest("a") : null);
+      var url = plink ? plink.href : "";
+
+      updateToast("<span>⏳</span> <span>Scanning Episode " + num + " (" + (i + 1) + "/" + eps.length + ")...</span>");
+
+      if (!url) {
+        triggerClick(el);
+        await randomDelay(550, 850);
+        url = window.location.href;
+      } else {
+        await randomDelay(80, 160);
       }
 
-      const episodesContainer = episodeHeader.parentElement;
-
-      // 2. Scan Tab Ranges (e.g. 1-24, 25-48...)
-      const getTabs = () => Array.from(episodesContainer.querySelectorAll('*'))
-        .filter(el => /^\d+-\d+$/.test(el.textContent?.trim()) && el.children.length === 0);
-
-      let tabs = getTabs();
-      if (tabs.length === 0) tabs = [null];
-
-      for (let t = 0; t < tabs.length; t++) {
-        const currentTabs = getTabs();
-        if (currentTabs[t]) {
-          floatingBtn.innerHTML = `<span>📑</span> <span>Tab ${t + 1}/${tabs.length}...</span>`;
-          triggerClick(currentTabs[t]);
-          // Human-like random delay for tab transition
-          await randomDelay(650, 950);
-        }
-
-        // Auto-scroll episode container to mount virtualized lazy elements
-        if (episodesContainer && episodesContainer.scrollHeight > episodesContainer.clientHeight) {
-          episodesContainer.scrollTop = episodesContainer.scrollHeight;
-          await randomDelay(150, 300);
-          episodesContainer.scrollTop = 0;
-          await randomDelay(100, 200);
-        }
-
-        // 3. Scan Episode Buttons
-        const epElements = Array.from(episodesContainer.querySelectorAll('*'))
-          .filter(el => {
-            const text = el.textContent?.trim();
-            return /^\d+$/.test(text) && 
-                   el.children.length === 0 && 
-                   el.getBoundingClientRect().height > 0 &&
-                   parseInt(text) <= 500;
-          });
-
-        for (let i = 0; i < epElements.length; i++) {
-          const el = epElements[i];
-          const epNum = parseInt(el.textContent.trim());
-
-          floatingBtn.innerHTML = `<span>⏳</span> <span>Ep ${epNum} (Paced)...</span>`;
-
-          const parentLink = el.closest('a') || el.querySelector('a') || el.parentElement?.closest('a');
-          let targetUrl = parentLink ? parentLink.href : '';
-
-          if (!targetUrl) {
-            triggerClick(el);
-            // Human-like random delay for router settling
-            await randomDelay(550, 850); 
-            targetUrl = window.location.href;
-          } else {
-            // Resting pace between reads
-            await randomDelay(100, 200);
-          }
-
-          if (targetUrl && !results.some(item => item.episode === epNum)) {
-            results.push({ episode: epNum, url: targetUrl, label: "Ep " + epNum });
-          }
-        }
+      var exists = false;
+      for (var k = 0; k < results.length; k++) {
+        if (results[k].episode === num) { exists = true; break; }
       }
-
-      results.sort((a, b) => a.episode - b.episode);
-      const urlsArray = results.map(item => item.url);
-
-      if (results.length === 0) {
-        alert('⚠️ No episodes detected. Please make sure episode buttons are visible on screen.');
-        floatingBtn.innerHTML = `<span>🚀</span> <span>Send Drama to App</span>`;
-        return;
+      if (url && !exists) {
+        results.push({ episode: num, url: url, label: "Ep " + num });
       }
+    }
+  }
 
-      // Extract Drama Title from Page
-      let dramaTitle = '';
-      const titleSelectors = ['[data-e2e="series-title"]', 'h1', 'h2', '[data-e2e="user-title"]', '.series-title', '.drama-title'];
-      for (const sel of titleSelectors) {
-        const el = document.querySelector(sel);
-        if (el && el.textContent?.trim()) {
-          const txt = el.textContent.trim();
-          if (txt && !/^\d+$/.test(txt) && txt !== 'Episodes' && txt !== 'About') {
-            dramaTitle = txt;
-            break;
-          }
-        }
+  if (toast) toast.remove();
+
+  results.sort(function(a, b) { return a.episode - b.episode; });
+  var urls = results.map(function(item) { return item.url; });
+
+  var dramaTitle = "";
+  var selectors = ["[data-e2e=\"series-title\"]", "h1", "h2", ".series-title", ".drama-title"];
+  for (var s = 0; s < selectors.length; s++) {
+    var selEl = document.querySelector(selectors[s]);
+    if (selEl && (selEl.textContent || "").trim()) {
+      var txtVal = (selEl.textContent || "").trim();
+      if (txtVal && !/^\d+$/.test(txtVal) && txtVal !== "Episodes" && txtVal !== "About") {
+        dramaTitle = txtVal;
+        break;
       }
-      if (!dramaTitle) {
-        dramaTitle = document.title.replace(/\|.*$/, '').replace(/-.*$/, '').trim();
-      }
-      dramaTitle = dramaTitle.replace(/[\\/:*?"<>|]/g, '_').trim();
+    }
+  }
+  if (!dramaTitle) {
+    dramaTitle = (document.title || "").replace(/\|.*$/, "").trim() || "TikTok Drama";
+  }
 
-      floatingBtn.innerHTML = `<span>📤</span> <span>Sending ${results.length} Ep to App...</span>`;
+  var sendToBridge = async function(statusElem) {
+    if (statusElem) statusElem.innerHTML = "⏳ Sending to Desktop App (127.0.0.1:54321)...";
 
-      // Transmit Structured JSON to Local Bridge
+    // 1. Try Chrome Extension Background Service Worker (Elevated Host Permissions)
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
       try {
-        const resp = await fetch(`${BRIDGE_URL}/api/receive-links`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: dramaTitle,
-            total_episodes: results.length,
-            episodes: results,
-            urls: urlsArray
-          })
+        var res = await new Promise(function(resolve) {
+          chrome.runtime.sendMessage({
+            action: "send_to_bridge",
+            payload: { title: dramaTitle, total_episodes: results.length, episodes: results, urls: urls }
+          }, resolve);
         });
-        const data = await resp.json();
-
-        if (data.status === 'success') {
-          floatingBtn.innerHTML = `<span>✅</span> <span>Sent ${results.length} Episodes!</span>`;
-          floatingBtn.style.borderColor = '#10b981';
-          floatingBtn.style.color = '#34d399';
-          setTimeout(() => {
-            floatingBtn.innerHTML = `<span>🚀</span> <span>Send Drama to App</span>`;
-            floatingBtn.style.borderColor = '#1e293b';
-            floatingBtn.style.color = '#06b6d4';
-          }, 3500);
-        } else {
-          alert('Bridge Error: ' + JSON.stringify(data));
-          floatingBtn.innerHTML = `<span>🚀</span> <span>Send Drama to App</span>`;
+        if (res && res.success && res.data && res.data.status === "success") {
+          if (statusElem) {
+            statusElem.innerHTML = "🟢 <b>Sent successfully!</b> Desktop App has loaded " + results.length + " episodes.";
+            statusElem.style.color = "#34d399";
+          }
+          return true;
         }
-      } catch (err) {
-        navigator.clipboard.writeText(urlsArray.join('\n'));
-        alert(`⚠️ Could not reach Desktop App (http://127.0.0.1:54321).\n\nCopied ${urlsArray.length} episode links to clipboard!`);
-        floatingBtn.innerHTML = `<span>🚀</span> <span>Send Drama to App</span>`;
+      } catch (e) {}
+    }
+
+    // 2. Direct fetch fallback
+    try {
+      var resp = await fetch("http://127.0.0.1:54321/api/receive-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: dramaTitle, total_episodes: results.length, episodes: results, urls: urls })
+      });
+      var d = await resp.json();
+      if (d.status === "success") {
+        if (statusElem) {
+          statusElem.innerHTML = "🟢 <b>Sent successfully!</b> Desktop App has loaded " + results.length + " episodes.";
+          statusElem.style.color = "#34d399";
+        }
+        return true;
       }
-
-    } catch (ex) {
-      alert('Scanning error: ' + ex.message);
-      floatingBtn.innerHTML = `<span>🚀</span> <span>Send Drama to App</span>`;
+    } catch (err) {
+      if (statusElem) {
+        statusElem.innerHTML = "🟡 <b>Desktop App is offline or PNA blocked.</b> Please copy links below or start the app.";
+        statusElem.style.color = "#fbbf24";
+      }
     }
-  }
+    return false;
+  };
 
-  // Periodic check to show floating button on drama series pages
-  setInterval(() => {
-    const hasEpisodes = Array.from(document.querySelectorAll('*')).some(e => e.textContent?.trim() === 'Episodes' && e.children.length === 0);
-    if (hasEpisodes) {
-      createFloatingButton();
+  var modal = document.createElement("div");
+  modal.id = "tt-extractor-modal";
+  modal.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;background:#0d1322;color:#f8fafc;border:1px solid #1e293b;border-radius:16px;padding:24px;width:90%;max-width:540px;box-shadow:0 25px 60px rgba(0,0,0,0.9);font-family:system-ui,-apple-system,sans-serif;";
+  
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid #1e293b;padding-bottom:12px;">
+      <div>
+        <h2 style="margin:0;font-size:18px;color:#06b6d4;display:flex;align-items:center;gap:8px;">
+          <span>🎬</span> <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px;">${dramaTitle}</span>
+        </h2>
+        <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Scanned <b>${results.length}</b> episodes successfully</div>
+      </div>
+      <button id="tt-modal-close" style="background:#1e293b;color:#94a3b8;border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;font-weight:bold;">✕</button>
+    </div>
+
+    <div id="tt-bridge-status" style="font-size:13px;padding:10px 14px;background:#090d16;border:1px solid #1e293b;border-radius:8px;margin-bottom:14px;color:#94a3b8;">
+      ⏳ Connecting to Desktop App...
+    </div>
+
+    <textarea id="tt-urls-area" readonly style="width:100%;height:140px;background:#070b14;color:#38bdf8;border:1px solid #1e293b;border-radius:8px;padding:10px;font-family:monospace;font-size:11px;resize:vertical;box-sizing:border-box;outline:none;margin-bottom:16px;"></textarea>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="tt-btn-send" style="flex:1;min-width:140px;background:#06b6d4;color:#090d16;border:none;padding:10px 16px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;box-shadow:0 4px 15px rgba(6,182,212,0.3);">
+        🚀 Send to Desktop App
+      </button>
+      <button id="tt-btn-copy" style="flex:1;min-width:130px;background:#1e293b;color:#f8fafc;border:1px solid #334155;padding:10px 16px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;">
+        📋 Copy All URLs
+      </button>
+      <button id="tt-btn-download" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;padding:10px 14px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;" title="Download as text file">
+        💾 Save .txt
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  var urlsArea = document.getElementById("tt-urls-area");
+  var statusBox = document.getElementById("tt-bridge-status");
+  var btnSend = document.getElementById("tt-btn-send");
+  var btnCopy = document.getElementById("tt-btn-copy");
+  var btnDownload = document.getElementById("tt-btn-download");
+  var btnClose = document.getElementById("tt-modal-close");
+
+  urlsArea.value = urls.join("\n");
+
+  btnClose.onclick = function() { modal.remove(); };
+
+  btnSend.onclick = function() { sendToBridge(statusBox); };
+
+  btnCopy.onclick = function() {
+    urlsArea.select();
+    try {
+      navigator.clipboard.writeText(urls.join("\n"));
+    } catch (e) {
+      document.execCommand("copy");
     }
-  }, 2000);
+    btnCopy.textContent = "✅ Copied!";
+    btnCopy.style.color = "#34d399";
+    setTimeout(function() {
+      btnCopy.textContent = "📋 Copy All URLs";
+      btnCopy.style.color = "#f8fafc";
+    }, 2000);
+  };
+
+  btnDownload.onclick = function() {
+    var blob = new Blob([urls.join("\n")], { type: "text/plain;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (dramaTitle.replace(/[^a-zA-Z0-9_\u1780-\u17FF]/g, "_") || "TikTok_Episodes") + ".txt";
+    a.click();
+  };
+
+  await sendToBridge(statusBox);
 })();
