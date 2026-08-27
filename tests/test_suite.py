@@ -296,13 +296,16 @@ class TestMetadataExtraction:
 # Session-scoped Tkinter root to avoid Tcl interpreter re-init issues
 @pytest.fixture(scope="session")
 def tk_root():
-    root = tk.Tk()
-    root.withdraw()
-    yield root
     try:
-        root.destroy()
-    except Exception:
-        pass
+        root = tk.Tk()
+        root.withdraw()
+        yield root
+        try:
+            root.destroy()
+        except Exception:
+            pass
+    except tk.TclError:
+        pytest.skip("Tkinter display ($DISPLAY) not available in this environment")
 
 
 class TestTkinterAppLifecycle:
