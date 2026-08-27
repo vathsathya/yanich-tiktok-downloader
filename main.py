@@ -1817,6 +1817,40 @@ class TikTokDownloaderApp:
 
 
 def main():
+    if "--smoke-test" in sys.argv or "--test" in sys.argv:
+        print("[CI-SMOKE-TEST] Starting automated binary & GUI smoke test...")
+        
+        # 1. Verify resource paths in frozen bundle
+        for res in ["extractor.js", "bookmarklet.txt"]:
+            res_path = get_resource_path(res)
+            if not os.path.exists(res_path):
+                print(f"[CI-SMOKE-TEST ERROR] Bundled resource missing: {res_path}")
+                sys.exit(1)
+            print(f"[CI-SMOKE-TEST OK] Bundled resource verified: {res}")
+
+        # 2. Test Tkinter initialization & UI construction
+        root = tk.Tk()
+        root.withdraw()  # Keep hidden during headless smoke test
+        app = TikTokDownloaderApp(root)
+        print("[CI-SMOKE-TEST OK] Tkinter UI, ttk styles, and Canvas mounted successfully.")
+
+        # 3. Test Bridge HTTP Server
+        time.sleep(0.5)
+        try:
+            resp = requests.get(f"http://{BRIDGE_HOST}:{BRIDGE_PORT}/api/ping", timeout=3)
+            if resp.status_code == 200 and resp.json().get("status") == "ok":
+                print("[CI-SMOKE-TEST OK] Bridge server active and successfully answered ping.")
+            else:
+                print(f"[CI-SMOKE-TEST ERROR] Unexpected bridge ping status: {resp.status_code}")
+                sys.exit(1)
+        except Exception as e:
+            print(f"[CI-SMOKE-TEST ERROR] Failed to connect to bridge server: {e}")
+            sys.exit(1)
+
+        print("[CI-SMOKE-TEST OK] All checks passed! Tearing down cleanly...")
+        app.on_app_close()
+        sys.exit(0)
+
     lock = SingleInstanceLock()
     if not lock.acquire():
         # Another instance is already running; ping it to bring to front
@@ -1836,3 +1870,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

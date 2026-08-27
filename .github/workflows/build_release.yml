@@ -41,6 +41,17 @@ jobs:
         run: |
           pyinstaller --clean TikTokDownloader.spec
 
+      - name: Automated Smoke Test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
+          xvfb-run -a ./dist/TikTokDownloader/TikTokDownloader --smoke-test
+
+      - name: Automated Smoke Test (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .\dist\TikTokDownloader\TikTokDownloader.exe --smoke-test
+
       - name: Package Distribution
         run: |
           python package_dist.py
