@@ -1,0 +1,40 @@
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Sensitive Data & Local Session Cookies
+session_cookies.json
+*.cookie
+*.session
+
+# Build & Packaging Artifacts
+build/
+dist/
+*.spec.bak
+*.egg-info/
+.eggs/
+
+# Downloaded Media & Partial Files
+*.mp4
+*.part
+*.jpg
+*.jpeg
+*.png
+!extension/*.png
+
+# Logs & Temporary Files
+*.log
+scratch/
+.system_generated/
+
+# OS Specific
+.DS_Store
+Thumbs.db
