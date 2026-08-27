@@ -1832,6 +1832,8 @@ def main():
         root = tk.Tk()
         root.withdraw()  # Keep hidden during headless smoke test
         app = TikTokDownloaderApp(root)
+        app.start_local_bridge()
+        root.update()
         print("[CI-SMOKE-TEST OK] Tkinter UI, ttk styles, and Canvas mounted successfully.")
 
         # 3. Test Bridge HTTP Server
