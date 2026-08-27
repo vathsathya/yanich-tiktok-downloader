@@ -84,6 +84,7 @@
 
       if (!url) {
         triggerClick(el);
+        document.querySelectorAll("video").forEach(function(v) { v.muted = true; try { v.pause(); } catch (e) {} });
         await randomDelay(550, 850);
         url = window.location.href;
       } else {
