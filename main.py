@@ -47,6 +47,11 @@ class SingleInstanceLock:
                 pass
             self.is_locked = False
 
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller bundled apps."""
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
 # Module-Level Precompiled Regex Patterns for High Performance
 TIKTOK_URL_RE = re.compile(r'https?://(?:www\.|vt\.|vm\.|m\.)?tiktok\.com/[^\s"\'<>]+', re.IGNORECASE)
 FILENAME_CLEAN_RE = re.compile(r'[\\/:*?"<>|\n\r\t]')
@@ -199,7 +204,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self._set_cors_headers(200)
             self.wfile.write(json.dumps({"status": "ok", "app": "TikTokDownloader"}).encode("utf-8"))
         elif self.path == "/extractor.js":
-            extractor_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extractor.js")
+            extractor_path = get_resource_path("extractor.js")
             if os.path.exists(extractor_path):
                 self._set_cors_headers(200, content_type="application/javascript; charset=utf-8")
                 with open(extractor_path, "rb") as f:
@@ -208,7 +213,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 self._set_cors_headers(404)
                 self.wfile.write(b"// Not found")
         elif self.path in ["/setup", "/", "/setup.html"]:
-            bookmarklet_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bookmarklet.txt")
+            bookmarklet_path = get_resource_path("bookmarklet.txt")
             if os.path.exists(bookmarklet_path):
                 with open(bookmarklet_path, "r", encoding="utf-8") as f:
                     bookmarklet_code = f.read().strip()

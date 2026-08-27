@@ -43,10 +43,24 @@
 
 ---
 
-### ៤. របៀប Build ចេញជា File `.exe` តែមួយ (សម្រាប់ Windows)
+### ៤. របៀប Build ជា Standalone Executable (Windows & Linux)
 
+កម្មវិធីមាន Script សម្រាប់ Build ជា Production ស្វ័យប្រវត្តិតែមួយ Command៖
+
+#### លើ Linux (Ubuntu, Debian, Fedora, Arch, etc.)
 ```bash
-pip install pyinstaller
-pyinstaller --noconsole --onefile --name "TikTok_Downloader" main.py
+./build_linux.sh
 ```
-> File `.exe` នឹងស្ថិតនៅក្នុង Folder `dist/TikTok_Downloader.exe`
+> Output នឹងទទួលបាន Folder `dist/TikTokDownloader`, `.desktop` Launcher និង Archive `dist/TikTokDownloader-Linux-x86_64.tar.gz` សម្រាប់ចែកចាយ។
+
+#### លើ Windows (10/11)
+```cmd
+build_windows.bat
+```
+> Output នឹងទទួលបាន `dist\TikTokDownloader.exe` ឯករាជ្យ និង Archive `dist\TikTokDownloader-Windows-x64.zip` (ដំណើរការបានដោយមិនបាច់មាន Python លើម៉ាស៊ីន)។
+
+---
+
+### ៥. CI/CD Automated Releases (GitHub Actions)
+គម្រោងនេះត្រូវបានបំពាក់ដោយ GitHub Actions Workflow (`.github/workflows/build_release.yml`)។ រាល់ពេលបង្កើត Tag ថ្មី (ឧ. `v1.0.0`) ប្រព័ន្ធនឹង Auto-build `.exe` និង Linux Binary រួចបង្ហោះចូលទៅកាន់ [GitHub Releases](https://github.com/vathsathya/yanich-tiktok-downloader/releases) ដោយស្វ័យប្រវត្តិ។
+
