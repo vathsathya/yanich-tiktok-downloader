@@ -528,6 +528,87 @@ class ModernProgressBar(tk.Canvas):
         self.create_text(w / 2, h / 2, text=self.text_overlay, fill=text_color, font=("Arial", 9, "bold"))
 
 
+# ----------------- Settings Modal Dialog -----------------
+class SettingsModal(tk.Toplevel):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.title("⚙️ Application Settings & Preferences")
+        self.geometry("520x460")
+        self.minsize(460, 390)
+        self.configure(bg=THEME["bg"])
+        self.transient(parent)
+        self.grab_set()
+
+        self.app = app
+        self.setup_ui()
+
+    def setup_ui(self):
+        # 1. Header (Top)
+        top = tk.Frame(self, bg=THEME["card_bg"], padx=16, pady=12, highlightbackground=THEME["card_border"], highlightthickness=1)
+        top.pack(fill="x", side="top")
+        tk.Label(top, text="⚙️ Preferences & Settings", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 11, "bold")).pack(side="left")
+        tk.Label(top, text=f"v{APP_VERSION}", bg="#1e293b", fg=THEME["accent_cyan"], font=("Arial", 9, "bold"), padx=8, pady=2).pack(side="right")
+
+        # 2. Bottom Done Button
+        bottom = tk.Frame(self, bg=THEME["card_bg"], padx=16, pady=10, highlightbackground=THEME["card_border"], highlightthickness=1)
+        bottom.pack(fill="x", side="bottom")
+        ttk.Button(bottom, text="💾 Done / Save", command=self.save_and_close, style="PrimaryBtn.TButton").pack(side="right", padx=4)
+
+        # 3. Body
+        body = tk.Frame(self, bg=THEME["bg"], padx=16, pady=12)
+        body.pack(fill="both", expand=True)
+
+        # Section 1: Download & Automation Preferences
+        sec1 = tk.Frame(body, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=12, pady=10)
+        sec1.pack(fill="x", pady=(0, 10))
+
+        tk.Label(sec1, text="📥 Download & Automation Preferences", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 9, "bold")).pack(anchor="w", pady=(0, 6))
+
+        # Threads
+        threads_row = tk.Frame(sec1, bg=THEME["card_bg"])
+        threads_row.pack(fill="x", pady=3)
+        tk.Label(threads_row, text="Concurrent Download Threads (1-5):", bg=THEME["card_bg"], fg=THEME["text_primary"], font=("Arial", 9)).pack(side="left")
+        ttk.Spinbox(threads_row, from_=1, to=5, textvariable=self.app.threads_var, width=3, style="Dark.TSpinbox").pack(side="right")
+
+        # Skip Existing
+        skip_row = tk.Frame(sec1, bg=THEME["card_bg"])
+        skip_row.pack(fill="x", pady=3)
+        ttk.Checkbutton(skip_row, text="Skip Existing Files (Do not re-download)", variable=self.app.skip_existing_var, style="Dark.TCheckbutton").pack(side="left")
+
+        # Auto-Clipboard
+        clip_row = tk.Frame(sec1, bg=THEME["card_bg"])
+        clip_row.pack(fill="x", pady=3)
+        ttk.Checkbutton(clip_row, text="Auto-Watch Clipboard (Detect TikTok links & auto-popup)", variable=self.app.auto_clipboard_var, style="Dark.TCheckbutton").pack(side="left")
+
+        # Section 2: Browser Integration
+        sec2 = tk.Frame(body, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=12, pady=10)
+        sec2.pack(fill="x", pady=(0, 10))
+
+        tk.Label(sec2, text="🌐 Browser Integration & Extension", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 9, "bold")).pack(anchor="w", pady=(0, 4))
+        tk.Label(sec2, text="1-Click extension bridge setup for Chrome, Edge, and Brave browsers.", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 8)).pack(anchor="w", pady=(0, 6))
+
+        ttk.Button(sec2, text="🌐 Open Browser Setup Helper ↗", command=self.open_browser_helper, style="DarkBtn.TButton").pack(anchor="w")
+
+        # Section 3: Software Updates
+        sec3 = tk.Frame(body, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=12, pady=10)
+        sec3.pack(fill="x")
+
+        tk.Label(sec3, text="🔄 Software Updates", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 9, "bold")).pack(anchor="w", pady=(0, 4))
+        tk.Label(sec3, text=f"Currently running TikTok Downloader Pro v{APP_VERSION}", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 8)).pack(anchor="w", pady=(0, 6))
+
+        ttk.Button(sec3, text="🔄 Check for Updates Now", command=self.check_update, style="DarkBtn.TButton").pack(anchor="w")
+
+    def open_browser_helper(self):
+        self.app.open_browser_setup()
+
+    def check_update(self):
+        self.app.manual_check_update()
+
+    def save_and_close(self):
+        self.app.save_app_state()
+        self.destroy()
+
+
 # ----------------- Add Links Modal Dialog -----------------
 class AddLinksModal(tk.Toplevel):
     def __init__(self, parent, on_load_callback, auto_paste=False, pre_filled_urls=None):
@@ -1263,8 +1344,7 @@ class TikTokDownloaderApp:
         self.bridge_badge = tk.Label(header, text="🟢 Local Bridge Online (54321)", bg="#064e3b", fg="#34d399", font=("Arial", 8, "bold"), padx=8, pady=3)
         self.bridge_badge.pack(side="right")
         
-        ttk.Button(header, text="🔄 Check Update", command=self.manual_check_update, style="DarkBtn.TButton").pack(side="right", padx=(0, 6))
-        ttk.Button(header, text="🌐 Browser Setup Helper", command=self.open_browser_setup, style="DarkBtn.TButton").pack(side="right", padx=(0, 6))
+        ttk.Button(header, text="⚙️ Settings", command=self.open_settings_modal, style="DarkBtn.TButton").pack(side="right", padx=(0, 8))
 
         # 2. Interactive Video Queue Table Card (EXPANDS to dominate majority of window)
         queue_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=8)
@@ -1278,7 +1358,6 @@ class TikTokDownloaderApp:
         self.toggle_select_btn = ttk.Button(toolbar, text="☑ Select All", command=self.toggle_select_all_items, style="DarkBtn.TButton")
         self.toggle_select_btn.pack(side="left", padx=2)
         ttk.Button(toolbar, text="🧹 Clear", command=self.clear_all_items, style="DarkBtn.TButton").pack(side="left", padx=2)
-        ttk.Checkbutton(toolbar, text="📋 Auto-Clipboard", variable=self.auto_clipboard_var, style="Dark.TCheckbutton").pack(side="left", padx=(8, 2))
         
         self.count_badge = tk.Label(toolbar, text="0 / 0 Selected", bg="#1e293b", fg=THEME["accent_cyan"], font=("Arial", 9, "bold"), padx=10, pady=2)
         self.count_badge.pack(side="right")
@@ -1381,7 +1460,7 @@ class TikTokDownloaderApp:
         self.log_text.tag_config("info", foreground=THEME["accent_cyan"])
         self.log_text.tag_config("skip", foreground=THEME["accent_purple"])
 
-        # 4. Unified Minimalist Control Bar (Folder + Settings consolidated in 1 line)
+        # 4. Clean Minimalist Output Folder Bar
         ctrl_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=5)
         ctrl_card.pack(fill="x", padx=14, pady=2)
 
@@ -1390,11 +1469,6 @@ class TikTokDownloaderApp:
         self.folder_entry.pack(side="left", fill="x", expand=True, padx=(4, 6))
         ttk.Button(ctrl_card, text="Browse", command=self.browse_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
         ttk.Button(ctrl_card, text="Open", command=self.open_save_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
-
-        tk.Label(ctrl_card, text="⚙️ Threads:", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 9)).pack(side="left", padx=(10, 2))
-        ttk.Spinbox(ctrl_card, from_=1, to=5, textvariable=self.threads_var, width=2, style="Dark.TSpinbox").pack(side="left", padx=2)
-
-        ttk.Checkbutton(ctrl_card, text="Skip Existing", variable=self.skip_existing_var, style="Dark.TCheckbutton").pack(side="left", padx=(8, 2))
 
         # 5. Main Action & Docked Bottom Status Bar
         action_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=6)
@@ -2159,6 +2233,9 @@ class TikTokDownloaderApp:
             if hasattr(self, "toggle_log_btn"):
                 self.toggle_log_btn.configure(text="🔼 Expand")
         self.save_app_state()
+
+    def open_settings_modal(self):
+        SettingsModal(self.root, self)
 
     def browse_folder(self):
         chosen = filedialog.askdirectory(initialdir=self.save_dir_var.get())

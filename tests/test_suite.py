@@ -575,6 +575,19 @@ class TestTkinterAppLifecycle:
         assert app.activity_expanded is False
         assert app.log_text.cget("height") == 2
 
+    def test_settings_modal(self, app_instance):
+        app, root, _ = app_instance
+        modal = main.SettingsModal(root, app)
+        assert modal.winfo_exists()
+        
+        # Test modifying settings from modal
+        app.threads_var.set(4)
+        app.skip_existing_var.set(False)
+        modal.save_and_close()
+        assert not modal.winfo_exists()
+        assert app.threads_var.get() == 4
+        assert app.skip_existing_var.get() is False
+
     def test_embed_mp4_metadata_mocked(self, tmp_path):
         dummy_mp4 = tmp_path / "test.mp4"
         dummy_mp4.write_bytes(b"\x00\x00\x00\x20ftypisom" + b"\x00" * 2000)
