@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -1393,9 +1393,8 @@ class TikTokDownloaderApp:
         tree_scroll_y.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
 
-        # Tree Events: Click to toggle checkbox / open link / retry, Double-click to preview or download, Right-click context menu
+        # Tree Events: Click to toggle checkbox (#1), Right-click context menu for all actions, Space to toggle selection
         self.tree.bind("<Button-1>", self.on_tree_click)
-        self.tree.bind("<Double-1>", self.on_tree_double_click)
         self.tree.bind("<Button-3>", self.show_tree_context_menu)
         self.tree.bind("<space>", lambda e: self.toggle_selected_rows())
 
@@ -1853,10 +1852,10 @@ class TikTokDownloaderApp:
             if not item_id:
                 return
 
-            # Check if this is a Series Parent Node
-            if item_id.startswith("series_"):
-                children = self.tree.get_children(item_id)
-                if col in ("#0", "#1"):  # Checkbox toggle for entire series
+            # Only toggle checkbox if user explicitly clicks on the Checkbox Column (#1)
+            if col == "#1":
+                if item_id.startswith("series_"):
+                    children = self.tree.get_children(item_id)
                     current_chk = self.tree.set(item_id, column="select")
                     target_state = (current_chk != "☑")
                     for ch in children:
@@ -1866,44 +1865,20 @@ class TikTokDownloaderApp:
                             self.tree.set(ch, column="select", value="☑" if target_state else "☐")
                     self.update_series_parent_row(item_id)
                     self.update_selection_counter()
-                elif col == "#6":  # Open Subfolder
-                    s_items = [it for it in self.queue_items if str(it["idx"]) in children]
-                    if s_items:
-                        folder = s_items[0].get("save_dir") or self.save_dir_var.get().strip()
-                        self._open_dir(folder)
-                elif col == "#7":  # Download this series
-                    s_items = [it for it in self.queue_items if str(it["idx"]) in children and it["selected"]]
-                    if s_items:
-                        self.run_batch_job(s_items, self.save_dir_var.get().strip(), self.threads_var.get())
-                return
-
-            # Normal child episode or standalone single video item
-            try:
-                idx = int(item_id)
-            except ValueError:
-                return
-            target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
-            if not target_item:
-                return
-
-            if col in ("#0", "#1"):  # select column
-                target_item["selected"] = not target_item["selected"]
-                chk = "☑" if target_item["selected"] else "☐"
-                self.tree.set(item_id, column="select", value=chk)
-                parent_iid = self.tree.parent(item_id)
-                if parent_iid and parent_iid.startswith("series_"):
-                    self.update_series_parent_row(parent_iid)
-                self.update_selection_counter()
-            elif col == "#6":  # url column -> open link in browser
-                url = target_item.get("url")
-                if url:
-                    webbrowser.open(url)
-                    self.log(f"🌐 Opened TikTok in Browser: {url}", tag="info")
-            elif col == "#7":  # action column
-                if target_item.get("status") in ("✅ Done", "⏭️ Skipped") and os.path.exists(target_item.get("filepath", "")):
-                    self.launch_preview_for_idx(idx)
                 else:
-                    self.retry_single_item(idx)
+                    try:
+                        idx = int(item_id)
+                        target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
+                        if target_item:
+                            target_item["selected"] = not target_item["selected"]
+                            chk = "☑" if target_item["selected"] else "☐"
+                            self.tree.set(item_id, column="select", value=chk)
+                            parent_iid = self.tree.parent(item_id)
+                            if parent_iid and parent_iid.startswith("series_"):
+                                self.update_series_parent_row(parent_iid)
+                            self.update_selection_counter()
+                    except ValueError:
+                        pass
 
     def toggle_selected_rows(self):
         selected_iids = self.tree.selection()
