@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.1.4"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -1670,6 +1670,17 @@ class TikTokDownloaderApp:
             for it in s_items:
                 chk = "☑" if it["selected"] else "☐"
                 ep_display = f"Ep {it.get('ep_str', it['idx'])}"
+                status_val = it.get("status", "Pending")
+                fpath = it.get("filepath", "")
+                if status_val in ("✅ Done", "⏭️ Skipped") or (fpath and os.path.exists(fpath)):
+                    action_txt = "▶ Preview"
+                elif "Downloading" in status_val or "..." in status_val:
+                    action_txt = "⏳ Busy"
+                elif "Failed" in status_val or "Error" in status_val:
+                    action_txt = "🔁 Retry"
+                else:
+                    action_txt = "⬇ Download"
+
                 self.tree.insert(series_iid, "end", iid=str(it["idx"]), text="", values=(
                     chk,
                     ep_display,
@@ -1677,13 +1688,24 @@ class TikTokDownloaderApp:
                     it["status"],
                     it["size"],
                     "🌐 Open Link ↗",
-                    "🔁 Retry"
+                    action_txt
                 ))
 
         # 2. Insert Standalone / Single Videos directly at root
         for it in standalone_items:
             chk = "☑" if it["selected"] else "☐"
             ep_display = f"#{it['idx']}"
+            status_val = it.get("status", "Pending")
+            fpath = it.get("filepath", "")
+            if status_val in ("✅ Done", "⏭️ Skipped") or (fpath and os.path.exists(fpath)):
+                action_txt = "▶ Preview"
+            elif "Downloading" in status_val or "..." in status_val:
+                action_txt = "⏳ Busy"
+            elif "Failed" in status_val or "Error" in status_val:
+                action_txt = "🔁 Retry"
+            else:
+                action_txt = "⬇ Download"
+
             self.tree.insert("", "end", iid=str(it["idx"]), text=f"📹 Video #{it['idx']}", values=(
                 chk,
                 ep_display,
@@ -1691,7 +1713,7 @@ class TikTokDownloaderApp:
                 it["status"],
                 it["size"],
                 "🌐 Open Link ↗",
-                "🔁 Retry"
+                action_txt
             ))
 
         self.update_selection_counter()
@@ -1804,8 +1826,11 @@ class TikTokDownloaderApp:
                 if url:
                     webbrowser.open(url)
                     self.log(f"🌐 Opened TikTok in Browser: {url}", tag="info")
-            elif col == "#7":  # action column -> retry this item
-                self.retry_single_item(idx)
+            elif col == "#7":  # action column
+                if target_item.get("status") in ("✅ Done", "⏭️ Skipped") and os.path.exists(target_item.get("filepath", "")):
+                    self.launch_preview_for_idx(idx)
+                else:
+                    self.retry_single_item(idx)
 
     def toggle_selected_rows(self):
         selected_iids = self.tree.selection()
@@ -2355,6 +2380,14 @@ class TikTokDownloaderApp:
                 self.tree.set(iid_str, column="title", value=title)
             if status:
                 self.tree.set(iid_str, column="status", value=status)
+                if status in ("✅ Done", "⏭️ Skipped"):
+                    self.tree.set(iid_str, column="action", value="▶ Preview")
+                elif "Downloading" in status or "..." in status:
+                    self.tree.set(iid_str, column="action", value="⏳ Busy")
+                elif "Failed" in status or "Error" in status:
+                    self.tree.set(iid_str, column="action", value="🔁 Retry")
+                else:
+                    self.tree.set(iid_str, column="action", value="⬇ Download")
             if size:
                 self.tree.set(iid_str, column="size", value=size)
 
