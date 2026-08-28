@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.2.3"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -1457,29 +1457,28 @@ class TikTokDownloaderApp:
         self.log_text.tag_config("error", foreground=THEME["accent_rose"], font=("Consolas", 8, "bold"))
         self.log_text.tag_config("warn", foreground=THEME["accent_amber"])
         self.log_text.tag_config("info", foreground=THEME["accent_cyan"])
-        self.log_text.tag_config("skip", foreground=THEME["accent_purple"])
+        # 4. Master Integrated Footer Dock (Folder + Start Download + Progress Bar consolidated)
+        footer_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=12, pady=7)
+        footer_card.pack(fill="x", padx=14, pady=(2, 8))
 
-        # 4. Clean Minimalist Output Folder Bar
-        ctrl_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=5)
-        ctrl_card.pack(fill="x", padx=14, pady=2)
+        # Top Control Row: Folder Selector on Left + Primary Start Download on Right
+        ctrl_row = tk.Frame(footer_card, bg=THEME["card_bg"])
+        ctrl_row.pack(fill="x", pady=(0, 5))
 
-        tk.Label(ctrl_card, text="📂", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 9)).pack(side="left")
-        self.folder_entry = ttk.Entry(ctrl_card, textvariable=self.save_dir_var, style="Dark.TEntry")
+        tk.Label(ctrl_row, text="📂", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 9)).pack(side="left")
+        self.folder_entry = ttk.Entry(ctrl_row, textvariable=self.save_dir_var, style="Dark.TEntry")
         self.folder_entry.pack(side="left", fill="x", expand=True, padx=(4, 6))
-        ttk.Button(ctrl_card, text="Browse", command=self.browse_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
-        ttk.Button(ctrl_card, text="Open", command=self.open_save_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
+        ttk.Button(ctrl_row, text="Browse", command=self.browse_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
+        ttk.Button(ctrl_row, text="Open", command=self.open_save_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
 
-        # 5. Main Action & Docked Bottom Status Bar
-        action_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=6)
-        action_card.pack(fill="x", padx=14, pady=(2, 8))
+        self.toggle_download_btn = ttk.Button(ctrl_row, text="▶ Start Download", command=self.toggle_download_state, style="PrimaryBtn.TButton")
+        self.toggle_download_btn.pack(side="right", padx=(10, 0))
 
-        self.toggle_download_btn = ttk.Button(action_card, text="▶ Start Batch Download", command=self.toggle_download_state, style="PrimaryBtn.TButton")
-        self.toggle_download_btn.pack(fill="x", expand=True, pady=(0, 4))
-
-        self.progress_bar = ModernProgressBar(action_card, height=18)
+        # Bottom Progress Row
+        self.progress_bar = ModernProgressBar(footer_card, height=18)
         self.progress_bar.pack(fill="x")
 
-        self.metrics_label = tk.Label(action_card, text="Status: Ready to start...", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 8), anchor="center")
+        self.metrics_label = tk.Label(footer_card, text="Status: Ready to start...", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 8), anchor="center")
         self.metrics_label.pack(fill="x", pady=(2, 0))
 
     # ----------------- Queue Table Management -----------------
