@@ -1609,6 +1609,7 @@ class TikTokDownloaderApp:
 
         self.queue_items.extend(new_items)
         self.refresh_tree()
+        self.save_app_state()
         
         if duplicate_count > 0:
             self.log(f"📥 Added {len(unique_entries)} new episode(s) (Skipped {duplicate_count} duplicate link(s)).", tag="info")
