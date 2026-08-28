@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.1.5"
+APP_VERSION = "1.1.6"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -1188,6 +1188,7 @@ class TikTokDownloaderApp:
         self.skip_existing_var = tk.BooleanVar(value=True)
         self.save_thumbnails_var = tk.BooleanVar(value=False)
         self.auto_clipboard_var = tk.BooleanVar(value=True)
+        self.activity_expanded = False
         self.last_clipboard_text = ""
 
         self.setup_styles()
@@ -1365,17 +1366,25 @@ class TikTokDownloaderApp:
         self.metrics_label = tk.Label(action_card, text="Status: Ready to start...", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 8), anchor="center")
         self.metrics_label.pack(fill="x", pady=(2, 0))
 
-        # 5. Compact Minimal Activity Logs
+        # 5. Compact / Expandable Activity Logs
         log_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=4)
         log_card.pack(fill="x", padx=14, pady=(2, 8))
 
         log_head = tk.Frame(log_card, bg=THEME["card_bg"])
         log_head.pack(fill="x", pady=(0, 2))
-        tk.Label(log_head, text="📜 Activity", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 8, "bold")).pack(side="left")
+        
+        act_title_lbl = tk.Label(log_head, text="📜 Activity", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 8, "bold"), cursor="hand2")
+        act_title_lbl.pack(side="left")
+        act_title_lbl.bind("<Button-1>", lambda e: self.toggle_activity_log_view())
+
+        self.toggle_log_btn = ttk.Button(log_head, text="🔼 Expand", command=self.toggle_activity_log_view, style="DarkBtn.TButton")
+        self.toggle_log_btn.pack(side="left", padx=(8, 2))
 
         ttk.Button(log_head, text="Clear", command=self.clear_logs, style="DarkBtn.TButton").pack(side="right", padx=1)
         self.copy_failed_btn = ttk.Button(log_head, text="📋 Copy Failed", command=self.copy_failed_links, state="disabled", style="DarkBtn.TButton")
         self.copy_failed_btn.pack(side="right", padx=1)
+        self.save_log_btn = ttk.Button(log_head, text="💾 Save Log", command=self.save_logs, style="DarkBtn.TButton")
+        self.save_log_btn.pack(side="right", padx=1)
 
         log_container = tk.Frame(log_card, bg=THEME["log_bg"], highlightbackground=THEME["card_border"], highlightthickness=1)
         log_container.pack(fill="x", expand=True)
@@ -2127,6 +2136,18 @@ class TikTokDownloaderApp:
                 f.write(content)
             messagebox.showinfo("Saved", f"Logs successfully saved to {os.path.basename(file_path)}")
 
+    def toggle_activity_log_view(self):
+        self.activity_expanded = not self.activity_expanded
+        if self.activity_expanded:
+            self.log_text.configure(height=9)
+            if hasattr(self, "toggle_log_btn"):
+                self.toggle_log_btn.configure(text="🔽 Collapse")
+        else:
+            self.log_text.configure(height=2)
+            if hasattr(self, "toggle_log_btn"):
+                self.toggle_log_btn.configure(text="🔼 Expand")
+        self.save_app_state()
+
     def browse_folder(self):
         chosen = filedialog.askdirectory(initialdir=self.save_dir_var.get())
         if chosen:
@@ -2192,7 +2213,8 @@ class TikTokDownloaderApp:
                     "save_dir": self.save_dir_var.get().strip(),
                     "threads": self.threads_var.get(),
                     "skip_existing": self.skip_existing_var.get(),
-                    "prefix": self.prefix_var.get().strip()
+                    "prefix": self.prefix_var.get().strip(),
+                    "activity_expanded": self.activity_expanded
                 },
                 "queue": self.queue_items
             }
@@ -2225,6 +2247,16 @@ class TikTokDownloaderApp:
                 self.skip_existing_var.set(bool(settings["skip_existing"]))
             if "prefix" in settings and settings["prefix"]:
                 self.prefix_var.set(settings["prefix"])
+            if "activity_expanded" in settings:
+                self.activity_expanded = bool(settings["activity_expanded"])
+                if self.activity_expanded:
+                    self.log_text.configure(height=9)
+                    if hasattr(self, "toggle_log_btn"):
+                        self.toggle_log_btn.configure(text="🔽 Collapse")
+                else:
+                    self.log_text.configure(height=2)
+                    if hasattr(self, "toggle_log_btn"):
+                        self.toggle_log_btn.configure(text="🔼 Expand")
 
             queue_data = data.get("queue", [])
             if queue_data:

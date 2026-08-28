@@ -556,6 +556,19 @@ class TestTkinterAppLifecycle:
         app.handle_auto_clipboard_urls(test_urls)
         assert len(app.queue_items) == 1
 
+    def test_toggle_activity_log_view(self, app_instance):
+        app, root, _ = app_instance
+        assert app.activity_expanded is False
+        assert app.log_text.cget("height") == 2
+
+        app.toggle_activity_log_view()
+        assert app.activity_expanded is True
+        assert app.log_text.cget("height") == 9
+
+        app.toggle_activity_log_view()
+        assert app.activity_expanded is False
+        assert app.log_text.cget("height") == 2
+
     def test_embed_mp4_metadata_mocked(self, tmp_path):
         dummy_mp4 = tmp_path / "test.mp4"
         dummy_mp4.write_bytes(b"\x00\x00\x00\x20ftypisom" + b"\x00" * 2000)
@@ -795,8 +808,8 @@ class TestAutoUpdater:
             if "releases/latest" in url:
                 resp.status_code = 200
                 resp.json.return_value = {
-                    "tag_name": "v1.1.5",
-                    "body": "Version 1.1.5 update notes",
+                    "tag_name": "v1.1.7",
+                    "body": "Version 1.1.7 update notes",
                     "assets": [
                         {
                             "name": "TikTokDownloader-Windows-AMD64.zip",
@@ -821,8 +834,8 @@ class TestAutoUpdater:
 
         assert len(callback_data) == 1
         update_info = callback_data[0]
-        assert update_info["version"] == "v1.1.5"
-        assert update_info["current_version"] == "1.1.4"
+        assert update_info["version"] == "v1.1.7"
+        assert update_info["current_version"] == "1.1.6"
 
         # Test apply in dev mode safely
         with patch("main.messagebox.showinfo") as mock_box:
