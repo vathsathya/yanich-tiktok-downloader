@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.1.5"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -133,8 +133,31 @@ def resolve_tiktok_shortlink(url, session=None):
                 pass
     return clean_url
 
+def _format_metadata_dict(video_url, cover_url=None, title="", author="TikTok Creator", source=""):
+    return {
+        "success": True,
+        "video_url": video_url,
+        "cover_url": cover_url,
+        "title": (title or "").strip(),
+        "author": (author or "TikTok Creator").strip(),
+        "source": source
+    }
+
+def _parse_tikwm_data(data, source_name="TikWM"):
+    if not data or data.get("code") != 0 or "data" not in data:
+        return None
+    d = data["data"]
+    # Prioritize hdplay (1080p Full HD without watermark) over standard play
+    v_url = d.get("hdplay") or d.get("play") or d.get("wmplay")
+    if not v_url:
+        return None
+    c_url = d.get("cover") or d.get("origin_cover")
+    title = d.get("title") or ""
+    author = d.get("author", {}).get("nickname", "TikTok Creator") if isinstance(d.get("author"), dict) else "TikTok Creator"
+    return _format_metadata_dict(v_url, c_url, title, author, source_name)
+
 def extract_tiktok_metadata(url, session=None):
-    """Multi-tier resilient metadata extractor with automatic failover."""
+    """Multi-tier resilient metadata extractor with automatic failover and 1080p HD priority."""
     sess = session or requests.Session()
     clean_url = resolve_tiktok_shortlink(url, sess)
 
@@ -142,59 +165,45 @@ def extract_tiktok_metadata(url, session=None):
     vid_id_match = re.search(r'/video/(\d+)', clean_url) or re.search(r'/episode/(\d+)', clean_url) or re.search(r'(\d{15,22})', clean_url)
     video_id = vid_id_match.group(1) if vid_id_match else None
 
-    # Tier 1: TikWM Primary API (GET)
-    try:
-        api_url = f"https://www.tikwm.com/api/?url={requests.utils.quote(clean_url)}"
-        resp = sess.get(api_url, timeout=(4, 16))
-        if resp.status_code == 200:
-            data = resp.json()
-            if data and data.get("code") == 0 and "data" in data and "play" in data["data"]:
-                d = data["data"]
-                return {
-                    "success": True,
-                    "video_url": d["play"],
-                    "cover_url": d.get("cover") or d.get("origin_cover"),
-                    "title": (d.get("title") or "").strip(),
-                    "author": d.get("author", {}).get("nickname", "TikTok Creator"),
-                    "source": "TikWM"
-                }
-    except Exception:
-        pass
-
-    # Tier 2: TikWM POST Endpoint
+    # Tier 1: TikWM Primary API (POST with hd=1 for 1080p priority)
     try:
         resp = sess.post("https://www.tikwm.com/api/", data={"url": clean_url, "hd": "1"}, timeout=(4, 16))
         if resp.status_code == 200:
-            data = resp.json()
-            if data and data.get("code") == 0 and "data" in data and "play" in data["data"]:
-                d = data["data"]
-                return {
-                    "success": True,
-                    "video_url": d["play"],
-                    "cover_url": d.get("cover") or d.get("origin_cover"),
-                    "title": (d.get("title") or "").strip(),
-                    "author": d.get("author", {}).get("nickname", "TikTok Creator"),
-                    "source": "TikWM-POST"
-                }
+            parsed = _parse_tikwm_data(resp.json(), "TikWM-HD")
+            if parsed:
+                return parsed
     except Exception:
         pass
 
-    # Tier 3: TikWM Backup Mirror
+    # Tier 2: TikWM GET Endpoint (Mirror Fallback)
     try:
-        api_url2 = f"https://tikwm.com/api/?url={requests.utils.quote(clean_url)}"
-        resp2 = sess.get(api_url2, timeout=(4, 16))
-        if resp2.status_code == 200:
-            data2 = resp2.json()
-            if data2 and data2.get("code") == 0 and "data" in data2 and "play" in data2["data"]:
-                d = data2["data"]
-                return {
-                    "success": True,
-                    "video_url": d["play"],
-                    "cover_url": d.get("cover") or d.get("origin_cover"),
-                    "title": (d.get("title") or "").strip(),
-                    "author": d.get("author", {}).get("nickname", "TikTok Creator"),
-                    "source": "TikWM-Mirror"
-                }
+        api_url = f"https://www.tikwm.com/api/?url={requests.utils.quote(clean_url)}&hd=1"
+        resp = sess.get(api_url, timeout=(4, 16))
+        if resp.status_code == 200:
+            parsed = _parse_tikwm_data(resp.json(), "TikWM-GET")
+            if parsed:
+                return parsed
+    except Exception:
+        pass
+
+    # Tier 3: Tiklydown Alternative API
+    try:
+        tikly_url = f"https://api.tiklydown.eu.org/api/download?url={requests.utils.quote(clean_url)}"
+        resp_tikly = sess.get(tikly_url, timeout=(4, 14))
+        if resp_tikly.status_code == 200:
+            tdata = resp_tikly.json()
+            if tdata and "video" in tdata:
+                v_obj = tdata["video"]
+                v_url = v_obj.get("noWatermark") or v_obj.get("watermark") or v_obj.get("url")
+                if v_url:
+                    author_name = tdata.get("author", {}).get("name", "TikTok Creator") if isinstance(tdata.get("author"), dict) else "TikTok Creator"
+                    return _format_metadata_dict(
+                        v_url,
+                        tdata.get("cover") or tdata.get("thumbnail"),
+                        tdata.get("title", ""),
+                        author_name,
+                        "Tiklydown"
+                    )
     except Exception:
         pass
 
@@ -202,23 +211,15 @@ def extract_tiktok_metadata(url, session=None):
     if video_id:
         try:
             canon_url = f"https://www.tiktok.com/@tiktok/video/{video_id}"
-            resp_id = sess.get(f"https://www.tikwm.com/api/?url={requests.utils.quote(canon_url)}", timeout=(4, 16))
+            resp_id = sess.post("https://www.tikwm.com/api/", data={"url": canon_url, "hd": "1"}, timeout=(4, 16))
             if resp_id.status_code == 200:
-                d_id = resp_id.json()
-                if d_id and d_id.get("code") == 0 and "data" in d_id and "play" in d_id["data"]:
-                    d = d_id["data"]
-                    return {
-                        "success": True,
-                        "video_url": d["play"],
-                        "cover_url": d.get("cover") or d.get("origin_cover"),
-                        "title": (d.get("title") or "").strip(),
-                        "author": d.get("author", {}).get("nickname", "TikTok Creator"),
-                        "source": "TikWM-Canonical"
-                    }
+                parsed = _parse_tikwm_data(resp_id.json(), "TikWM-Canonical")
+                if parsed:
+                    return parsed
         except Exception:
             pass
 
-    # Tier 5: Direct HTML Hydration Scraper
+    # Tier 5: Direct HTML Hydration Scraper (__UNIVERSAL_DATA_FOR_REHYDRATION__ / SIGI_STATE)
     try:
         resp_web = sess.get(clean_url, timeout=(5, 15), headers=DEFAULT_HEADERS)
         if resp_web.status_code == 200:
@@ -231,25 +232,18 @@ def extract_tiktok_metadata(url, session=None):
                 vinfo = istruct.get("video", {})
                 v_url = vinfo.get("playAddr") or vinfo.get("downloadAddr")
                 if v_url:
-                    return {
-                        "success": True,
-                        "video_url": v_url,
-                        "cover_url": vinfo.get("cover") or vinfo.get("originCover"),
-                        "title": istruct.get("desc", "").strip(),
-                        "author": istruct.get("author", {}).get("nickname", "TikTok Creator"),
-                        "source": "TikTok-Rehydration"
-                    }
+                    author_name = istruct.get("author", {}).get("nickname", "TikTok Creator") if isinstance(istruct.get("author"), dict) else "TikTok Creator"
+                    return _format_metadata_dict(
+                        v_url,
+                        vinfo.get("cover") or vinfo.get("originCover"),
+                        istruct.get("desc", ""),
+                        author_name,
+                        "TikTok-Rehydration"
+                    )
             play_m = re.search(r'"playAddr"\s*:\s*"([^"]+)"', resp_web.text)
             if play_m:
                 v_url = play_m.group(1).encode('utf-8').decode('unicode-escape')
-                return {
-                    "success": True,
-                    "video_url": v_url,
-                    "cover_url": None,
-                    "title": "",
-                    "author": "TikTok Creator",
-                    "source": "TikTok-HTML-Regex"
-                }
+                return _format_metadata_dict(v_url, None, "", "TikTok Creator", "TikTok-HTML-Regex")
     except Exception:
         pass
 
@@ -265,37 +259,21 @@ def extract_tiktok_metadata(url, session=None):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(clean_url, download=False)
             if info and info.get("url"):
-                return {
-                    "success": True,
-                    "video_url": info["url"],
-                    "cover_url": info.get("thumbnail"),
-                    "title": info.get("title", ""),
-                    "author": info.get("uploader", "TikTok Creator"),
-                    "source": "yt-dlp"
-                }
+                return _format_metadata_dict(
+                    info["url"],
+                    info.get("thumbnail"),
+                    info.get("title", ""),
+                    info.get("uploader", "TikTok Creator"),
+                    "yt-dlp"
+                )
     except Exception:
         pass
 
-    # Tier 7: Tiklydown Open API Fallback
-    try:
-        api_url3 = f"https://api.tiklydown.eu.org/api/download?url={requests.utils.quote(clean_url)}"
-        resp3 = sess.get(api_url3, timeout=(5, 18), verify=False)
-        if resp3.status_code == 200:
-            data3 = resp3.json()
-            video_url_val = data3.get("video", {}).get("noWatermark") or data3.get("video", {}).get("watermark")
-            if video_url_val:
-                return {
-                    "success": True,
-                    "video_url": video_url_val,
-                    "cover_url": data3.get("video", {}).get("cover"),
-                    "title": (data3.get("title") or "").strip(),
-                    "author": data3.get("author", {}).get("name", "TikTok Creator"),
-                    "source": "Tiklydown"
-                }
-    except Exception:
-        pass
-
-    return {"success": False, "error": "Extraction failed across all API providers"}
+    return {
+        "success": False,
+        "error": "Failed to extract video stream from all available sources",
+        "url": url
+    }
 
 # Modern Sleek Dark Palette
 THEME = {

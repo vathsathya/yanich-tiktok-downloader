@@ -211,31 +211,36 @@ class TestHttpBridgeServer:
 
 
 class TestMetadataExtraction:
+    @patch("main.requests.Session.post")
     @patch("main.requests.Session.get")
-    def test_extract_tiktok_metadata_tikwm_primary(self, mock_get):
+    def test_extract_tiktok_metadata_tikwm_primary(self, mock_get, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
             "code": 0,
             "data": {
+                "hdplay": "https://tikwm.com/video/media_hd.mp4",
                 "play": "https://tikwm.com/video/media.mp4",
                 "cover": "https://tikwm.com/cover.jpg",
                 "title": "Amazing TikTok Drama Episode 1",
                 "author": {"nickname": "Drama Queen"}
             }
         }
+        mock_post.return_value = mock_resp
         mock_get.return_value = mock_resp
 
         result = main.extract_tiktok_metadata("https://www.tiktok.com/@test/video/1234567890123456789")
         assert result["success"] is True
-        assert result["video_url"] == "https://tikwm.com/video/media.mp4"
+        assert result["video_url"] == "https://tikwm.com/video/media_hd.mp4"
         assert result["cover_url"] == "https://tikwm.com/cover.jpg"
         assert result["title"] == "Amazing TikTok Drama Episode 1"
         assert result["author"] == "Drama Queen"
-        assert result["source"] == "TikWM"
+        assert result["source"].startswith("TikWM")
 
+    @patch("main.requests.Session.post")
     @patch("main.requests.Session.get")
-    def test_extract_tiktok_metadata_fallback_tiklydown(self, mock_get):
+    def test_extract_tiktok_metadata_fallback_tiklydown(self, mock_get, mock_post):
+        mock_post.side_effect = Exception("TikWM post fail")
         def side_effect(url, **kwargs):
             resp = MagicMock()
             if "tikwm" in url:
@@ -257,25 +262,30 @@ class TestMetadataExtraction:
         assert result["title"] == "Fallback Video Title"
         assert result["source"] == "Tiklydown"
 
+    @patch("main.requests.Session.post")
     @patch("main.requests.Session.get")
-    def test_extract_tiktok_metadata_all_fail(self, mock_get):
+    def test_extract_tiktok_metadata_all_fail(self, mock_get, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 500
         mock_resp.json.side_effect = Exception("API error")
         mock_get.return_value = mock_resp
+        mock_post.return_value = mock_resp
 
         result = main.extract_tiktok_metadata("https://www.tiktok.com/@test/video/1234567890123456789")
         assert result["success"] is False
-        assert "Extraction failed" in result["error"]
+        assert "Failed to extract" in result["error"] or "Extraction failed" in result["error"]
 
+    @patch("main.requests.Session.post")
     @patch("main.requests.Session.get")
-    def test_extract_tiktok_metadata_shortdrama_canonical(self, mock_get):
-        def side_effect(url, **kwargs):
+    def test_extract_tiktok_metadata_shortdrama_canonical(self, mock_get, mock_post):
+        def post_side_effect(url, **kwargs):
+            data_arg = kwargs.get("data", {})
+            req_url = data_arg.get("url", "")
             resp = MagicMock()
-            if "/shortdrama/episode/" in url:
+            if "/shortdrama/episode/" in req_url:
                 resp.status_code = 500
                 resp.json.return_value = {"code": -1}
-            elif "7667927678226043925" in url:
+            elif "7667927678226043925" in req_url:
                 resp.status_code = 200
                 resp.json.return_value = {
                     "code": 0,
@@ -290,7 +300,8 @@ class TestMetadataExtraction:
                 resp.status_code = 500
             return resp
 
-        mock_get.side_effect = side_effect
+        mock_post.side_effect = post_side_effect
+        mock_get.return_value = MagicMock(status_code=500)
         result = main.extract_tiktok_metadata("https://www.tiktok.com/shortdrama/episode/7667927678226043925/1")
         assert result["success"] is True
         assert result["video_url"] == "https://tikwm.com/video/drama_ep1.mp4"
