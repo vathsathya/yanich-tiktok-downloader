@@ -18,13 +18,30 @@ import warnings
 import requests
 from requests.adapters import HTTPAdapter
 import webbrowser
-from PIL import Image, ImageTk
 
 # Suppress unverified HTTPS request warnings on mirrors
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
+APP_VERSION = "1.0.2"
+GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
+
+def parse_version_tuple(v_str):
+    """Parses a version string like 'v1.2.3' or '1.0.0' into a comparable tuple of ints."""
+    if not v_str:
+        return (0, 0, 0, 0)
+    cleaned = re.sub(r'^[^\d]*', '', str(v_str).strip())
+    parts = []
+    for part in re.split(r'[.\-_]', cleaned):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            break
+    while len(parts) < 4:
+        parts.append(0)
+    return tuple(parts[:4])
+
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 54321
 SINGLE_INSTANCE_PORT = 54320
@@ -729,22 +746,9 @@ class VideoPreviewModal(tk.Toplevel):
         meta_text = " | ".join([p for p in [author_str, size_str, item.get("filename", "")] if p])
         self.meta_lbl.config(text=meta_text)
 
-        cover_path = item.get("cover_path", "")
         self.thumb_canvas.delete("all")
-        
-        if cover_path and os.path.exists(cover_path):
-            try:
-                with Image.open(cover_path) as raw_img:
-                    img = raw_img.copy()
-                canvas_w = 480
-                canvas_h = 280
-                img.thumbnail((canvas_w, canvas_h), Image.Resampling.LANCZOS)
-                self.photo_ref = ImageTk.PhotoImage(img)
-                self.thumb_canvas.create_image(canvas_w / 2, canvas_h / 2, image=self.photo_ref, anchor="center")
-            except Exception:
-                self.thumb_canvas.create_text(240, 140, text="🖼️ [Thumbnail Loaded]", fill=THEME["text_secondary"], font=("Arial", 11))
-        else:
-            self.thumb_canvas.create_text(240, 140, text="🎬 [Video Ready to Play]", fill=THEME["accent_cyan"], font=("Arial", 12, "bold"))
+        self.thumb_canvas.create_text(240, 130, text="🎬", fill=THEME["accent_cyan"], font=("Arial", 36))
+        self.thumb_canvas.create_text(240, 180, text="[Video Ready to Play]", fill=THEME["accent_cyan"], font=("Arial", 12, "bold"))
 
         self.prev_btn.config(state="normal" if self.idx > 0 else "disabled")
         self.next_btn.config(state="normal" if self.idx < total - 1 else "disabled")
@@ -785,6 +789,249 @@ class VideoPreviewModal(tk.Toplevel):
                 subprocess.Popen(["open", folder])
             else:
                 subprocess.Popen(["xdg-open", folder])
+
+
+# ----------------- Auto-Updater Modal & Engine -----------------
+class UpdateReadyModal(tk.Toplevel):
+    """Sleek dark-themed popup modal prompting user to confirm update and restart."""
+    def __init__(self, parent, update_info, on_update_confirm=None):
+        super().__init__(parent)
+        self.title("🚀 New Version Ready to Install")
+        self.geometry("490x440")
+        self.minsize(420, 360)
+        self.configure(bg=THEME["bg"])
+        self.transient(parent)
+        self.update_info = update_info
+        self.on_update_confirm = on_update_confirm
+
+        self.setup_ui()
+        self.focus_force()
+
+    def setup_ui(self):
+        # Header card (Top)
+        header = tk.Frame(self, bg=THEME["card_bg"], padx=16, pady=12, highlightbackground=THEME["card_border"], highlightthickness=1)
+        header.pack(fill="x", side="top")
+
+        title_box = tk.Frame(header, bg=THEME["card_bg"])
+        title_box.pack(fill="x")
+        tk.Label(title_box, text="🚀 Update Downloaded & Ready!", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 11, "bold")).pack(side="left")
+
+        ver_text = f"Current: v{self.update_info.get('current_version', APP_VERSION)}  ➔  New: {self.update_info.get('version', '')}"
+        tk.Label(header, text=ver_text, bg=THEME["card_bg"], fg=THEME["accent_emerald"], font=("Arial", 10, "bold")).pack(anchor="w", pady=(4, 0))
+
+        # Bottom Button Bar (Packed to bottom FIRST to ensure persistent visibility)
+        btn_bar = tk.Frame(self, bg=THEME["card_bg"], padx=16, pady=12, highlightbackground=THEME["card_border"], highlightthickness=1)
+        btn_bar.pack(fill="x", side="bottom")
+
+        self.later_btn = ttk.Button(btn_bar, text="Remind Me Later", command=self.destroy, style="DarkBtn.TButton")
+        self.later_btn.pack(side="left", padx=4)
+
+        self.apply_btn = ttk.Button(btn_bar, text="⚡ Update & Restart Now", command=self.confirm_update, style="PrimaryBtn.TButton")
+        self.apply_btn.pack(side="right", padx=4)
+
+        # Body: Changelog / Release Notes (Middle expanding container)
+        body_frame = tk.Frame(self, bg=THEME["bg"], padx=16, pady=10)
+        body_frame.pack(fill="both", expand=True)
+
+        tk.Label(body_frame, text="What's New in this Release:", bg=THEME["bg"], fg=THEME["text_secondary"], font=("Arial", 9, "bold")).pack(anchor="w", pady=(0, 4))
+
+        notes_container = tk.Frame(body_frame, bg=THEME["log_bg"], highlightbackground=THEME["card_border"], highlightthickness=1)
+        notes_container.pack(fill="both", expand=True)
+
+        notes_txt = tk.Text(notes_container, wrap="word", bg=THEME["log_bg"], fg="#f4f4f5", font=("Segoe UI", 9), relief="flat", padx=8, pady=8)
+        notes_scroll = ttk.Scrollbar(notes_container, orient="vertical", command=notes_txt.yview)
+        notes_txt.configure(yscrollcommand=notes_scroll.set)
+
+        notes_scroll.pack(side="right", fill="y")
+        notes_txt.pack(side="left", fill="both", expand=True)
+
+        raw_notes = self.update_info.get("release_notes", "").strip() or "General performance enhancements and reliability updates."
+        notes_txt.insert("1.0", raw_notes)
+        notes_txt.configure(state="disabled")
+
+    def confirm_update(self):
+        self.destroy()
+        if self.on_update_confirm:
+            self.on_update_confirm()
+
+
+class SilentAutoUpdater:
+    """Non-blocking background auto-updater with silent staging and zero startup delay."""
+    def __init__(self, app_version=APP_VERSION, repo=GITHUB_REPO):
+        self.app_version = app_version
+        self.repo = repo
+        self.staging_dir = os.path.join(os.path.expanduser("~"), ".tiktok_downloader_updates")
+
+    def check_and_download(self, callback_on_ready=None, on_no_update=None):
+        """Spawns background daemon thread to silently check and stage updates."""
+        t = threading.Thread(target=self._worker_routine, args=(callback_on_ready, on_no_update), daemon=True)
+        t.start()
+        return t
+
+    def _worker_routine(self, callback_on_ready=None, on_no_update=None):
+        try:
+            url = f"https://api.github.com/repos/{self.repo}/releases/latest"
+            headers = {
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": f"TikTokDownloader/{self.app_version}"
+            }
+            resp = requests.get(url, headers=headers, timeout=(5, 10))
+            if resp.status_code != 200:
+                if on_no_update:
+                    on_no_update(f"GitHub API status {resp.status_code}")
+                return
+
+            rel_data = resp.json()
+            latest_tag = rel_data.get("tag_name", "").strip()
+            if not latest_tag:
+                if on_no_update:
+                    on_no_update("No release found")
+                return
+
+            if parse_version_tuple(latest_tag) <= parse_version_tuple(self.app_version):
+                if on_no_update:
+                    on_no_update("up_to_date")
+                return
+
+            current_os = sys.platform
+            assets = rel_data.get("assets", [])
+            target_asset = None
+
+            for asset in assets:
+                name = asset.get("name", "").lower()
+                if "win" in current_os and name.endswith(".zip") and "windows" in name:
+                    target_asset = asset
+                    break
+                elif "linux" in current_os and name.endswith(".tar.gz") and "linux" in name:
+                    target_asset = asset
+                    break
+
+            if not target_asset:
+                for asset in assets:
+                    name = asset.get("name", "").lower()
+                    if "win" in current_os and name.endswith(".zip"):
+                        target_asset = asset
+                        break
+                    elif "linux" in current_os and (name.endswith(".tar.gz") or name.endswith(".tgz")):
+                        target_asset = asset
+                        break
+
+            if not target_asset:
+                return
+
+            download_url = target_asset.get("browser_download_url")
+            asset_name = target_asset.get("name")
+            if not download_url or not asset_name:
+                return
+
+            os.makedirs(self.staging_dir, exist_ok=True)
+            local_archive = os.path.join(self.staging_dir, asset_name)
+            part_archive = f"{local_archive}.part"
+
+            # Low-priority streaming download with chunking
+            with requests.get(download_url, headers=headers, stream=True, timeout=(10, 60)) as dl_resp:
+                dl_resp.raise_for_status()
+                with open(part_archive, "wb") as f:
+                    for chunk in dl_resp.iter_content(chunk_size=1024 * 128):
+                        if chunk:
+                            f.write(chunk)
+
+            if os.path.exists(local_archive):
+                try:
+                    os.remove(local_archive)
+                except Exception:
+                    pass
+            os.replace(part_archive, local_archive)
+
+            # Integrity check of downloaded archive
+            if local_archive.endswith(".zip"):
+                import zipfile
+                with zipfile.ZipFile(local_archive, "r") as zf:
+                    if zf.testzip() is not None:
+                        return
+            elif local_archive.endswith((".tar.gz", ".tgz")):
+                import tarfile
+                with tarfile.open(local_archive, "r:gz") as tf:
+                    tf.getmembers()
+
+            update_info = {
+                "version": latest_tag,
+                "current_version": self.app_version,
+                "release_notes": rel_data.get("body", "No release notes provided."),
+                "archive_path": local_archive,
+                "asset_name": asset_name
+            }
+
+            if callback_on_ready:
+                callback_on_ready(update_info)
+        except Exception:
+            pass
+
+
+def apply_update_and_restart(update_info, app_instance=None):
+    """Spawns detached updater script to unpack and restart the app."""
+    archive_path = update_info.get("archive_path")
+    if not archive_path or not os.path.exists(archive_path):
+        return False
+
+    is_frozen = getattr(sys, "frozen", False)
+    current_pid = os.getpid()
+
+    if is_frozen:
+        exe_path = sys.executable
+        app_dir = os.path.dirname(os.path.abspath(exe_path))
+
+        if sys.platform == "win32":
+            script_path = os.path.join(app_dir, "apply_update.bat")
+            script_content = f"""@echo off
+setlocal
+echo Updating TikTok Downloader...
+:wait_loop
+tasklist /FI "PID eq {current_pid}" 2>NUL | find /I "{current_pid}" >NUL
+if "%ERRORLEVEL%"=="0" (
+    timeout /T 1 /NOBREAK >NUL
+    goto wait_loop
+)
+
+tar -xf "{archive_path}" -C "{app_dir}" 2>NUL || powershell -command "Expand-Archive -Path '{archive_path}' -DestinationPath '{app_dir}' -Force"
+
+start "" "{exe_path}"
+del "%~f0" & exit
+"""
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(script_content)
+
+            subprocess.Popen(["cmd.exe", "/c", script_path], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if app_instance:
+                app_instance.on_app_close()
+            else:
+                os._exit(0)
+            return True
+        elif sys.platform == "linux":
+            script_path = os.path.join(app_dir, "apply_update.sh")
+            script_content = f"""#!/usr/bin/env bash
+while kill -0 {current_pid} 2>/dev/null; do
+    sleep 0.5
+done
+tar -xzf "{archive_path}" -C "{app_dir}"
+chmod +x "{exe_path}"
+nohup "{exe_path}" >/dev/null 2>&1 &
+rm -f "$0"
+"""
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(script_content)
+            os.chmod(script_path, 0o755)
+            subprocess.Popen(["/bin/bash", script_path], start_new_session=True)
+            if app_instance:
+                app_instance.on_app_close()
+            else:
+                os._exit(0)
+            return True
+
+    # In dev mode:
+    if app_instance:
+        messagebox.showinfo("Update Downloaded", f"Update {update_info.get('version')} downloaded to:\n{archive_path}\n(Development source mode: please git pull or replace files manually).")
+    return True
 
 
 # ----------------- URL Normalization Helper -----------------
@@ -862,7 +1109,7 @@ def verify_video_file(filepath, expected_size=None):
 class TikTokDownloaderApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("TikTok Drama & Video Batch Downloader Pro")
+        self.root.title(f"TikTok Drama & Video Batch Downloader Pro v{APP_VERSION}")
         self.root.geometry("860x800")
         self.root.minsize(740, 640)
         self.root.configure(bg=THEME["bg"])
@@ -895,11 +1142,13 @@ class TikTokDownloaderApp:
         self.prefix_var.trace_add("write", lambda *args: self.on_prefix_changed())
         
         self.skip_existing_var = tk.BooleanVar(value=True)
-        self.save_thumbnails_var = tk.BooleanVar(value=True)
+        self.save_thumbnails_var = tk.BooleanVar(value=False)
 
         self.setup_styles()
         self.setup_ui()
         self.root.after(150, self.start_local_bridge)
+        self.updater = SilentAutoUpdater(app_version=APP_VERSION, repo=GITHUB_REPO)
+        self.root.after(6000, self.start_silent_update_check)
         self.root.protocol("WM_DELETE_WINDOW", self.on_app_close)
         self.log("💡 Tip: Click '🌐 Browser Setup Helper' on TikTok, or press Ctrl+V / '+ Add Links...' to load drama episodes.", tag="info")
 
@@ -953,11 +1202,12 @@ class TikTokDownloaderApp:
         header = tk.Frame(self.root, bg=THEME["bg"], padx=14, pady=8)
         header.pack(fill="x")
         
-        tk.Label(header, text="🎬 TikTok Downloader Pro", bg=THEME["bg"], fg="#ffffff", font=("Arial", 12, "bold")).pack(side="left")
+        tk.Label(header, text=f"🎬 TikTok Downloader Pro v{APP_VERSION}", bg=THEME["bg"], fg="#ffffff", font=("Arial", 12, "bold")).pack(side="left")
         self.bridge_badge = tk.Label(header, text="🟢 Local Bridge Online (54321)", bg="#064e3b", fg="#34d399", font=("Arial", 8, "bold"), padx=8, pady=3)
         self.bridge_badge.pack(side="right")
         
-        ttk.Button(header, text="🌐 Browser Setup Helper", command=self.open_browser_setup, style="DarkBtn.TButton").pack(side="right", padx=(0, 8))
+        ttk.Button(header, text="🔄 Check Update", command=self.manual_check_update, style="DarkBtn.TButton").pack(side="right", padx=(0, 6))
+        ttk.Button(header, text="🌐 Browser Setup Helper", command=self.open_browser_setup, style="DarkBtn.TButton").pack(side="right", padx=(0, 6))
 
         # 2. Interactive Video Queue Table Card (EXPANDS to dominate majority of window)
         queue_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=8)
@@ -1050,7 +1300,6 @@ class TikTokDownloaderApp:
         ttk.Spinbox(ctrl_card, from_=1, to=5, textvariable=self.threads_var, width=2, style="Dark.TSpinbox").pack(side="left", padx=2)
 
         ttk.Checkbutton(ctrl_card, text="Skip Existing", variable=self.skip_existing_var, style="Dark.TCheckbutton").pack(side="left", padx=(8, 2))
-        ttk.Checkbutton(ctrl_card, text="Posters", variable=self.save_thumbnails_var, style="Dark.TCheckbutton").pack(side="left", padx=2)
 
         # 4. Main Action & Integrated Progress Card
         action_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=6)
@@ -1098,7 +1347,7 @@ class TikTokDownloaderApp:
         for it in self.queue_items:
             if it["status"] in ["Pending", ""]:
                 it["filepath"] = os.path.join(save_dir, it["filename"])
-                it["cover_path"] = os.path.join(save_dir, f"{os.path.splitext(it['filename'])[0]}.jpg")
+                it["cover_path"] = ""
 
     def on_prefix_changed(self):
         prefix = self.prefix_var.get().strip()
@@ -1108,7 +1357,7 @@ class TikTokDownloaderApp:
                 it["filename"] = f"{prefix}{it['ep_str']}.mp4"
                 it["title"] = it["filename"]
                 it["filepath"] = os.path.join(save_dir, it["filename"])
-                it["cover_path"] = os.path.join(save_dir, f"{prefix}{it['ep_str']}.jpg")
+                it["cover_path"] = ""
                 if self.tree.exists(str(it["idx"])):
                     self.tree.set(str(it["idx"]), column="title", value=it["title"])
 
@@ -1274,7 +1523,7 @@ class TikTokDownloaderApp:
                 "cover_url": entry.get("cover_url", ""),
                 "filename": fname,
                 "filepath": os.path.join(self.save_dir_var.get().strip(), fname),
-                "cover_path": os.path.join(self.save_dir_var.get().strip(), f"{prefix}{ep_str}.jpg")
+                "cover_path": ""
             }
             new_items.append(item)
 
@@ -1634,7 +1883,7 @@ class TikTokDownloaderApp:
         for it in selected_items:
             it["filename"] = f"{prefix}{it['ep_str']}.mp4"
             it["filepath"] = os.path.join(save_dir, it["filename"])
-            it["cover_path"] = os.path.join(save_dir, f"{prefix}{it['ep_str']}.jpg")
+            it["cover_path"] = ""
             it["status"] = "Pending"
             if self.tree.exists(str(it["idx"])):
                 self.tree.set(str(it["idx"]), column="status", value="Pending")
@@ -1792,22 +2041,7 @@ class TikTokDownloaderApp:
                         meta_title = os.path.splitext(filename)[0]
 
                     final_filepath = os.path.join(save_dir, final_filename)
-                    final_coverpath = os.path.join(save_dir, f"{os.path.splitext(final_filename)[0]}.jpg")
                     part_filepath = f"{final_filepath}.part"
-
-                    # Download poster cover
-                    if save_thumbnails and cover_url:
-                        try:
-                            c_resp = worker_session.get(cover_url, timeout=(4, 12))
-                            if c_resp.status_code == 200:
-                                with open(final_coverpath, "wb") as cf:
-                                    cf.write(c_resp.content)
-                                poster_path = os.path.join(save_dir, f"{prefix}Poster.jpg")
-                                if not os.path.exists(poster_path):
-                                    with open(poster_path, "wb") as pf:
-                                        pf.write(c_resp.content)
-                        except Exception:
-                            pass
 
                     # High-throughput 256KB stream buffering with CDN Range acceleration
                     stream_headers = {
@@ -1859,7 +2093,7 @@ class TikTokDownloaderApp:
                     # Update item properties to match file on disk
                     item["filename"] = final_filename
                     item["filepath"] = final_filepath
-                    item["cover_path"] = final_coverpath
+                    item["cover_path"] = ""
                     item["title"] = meta_title
 
                     success = True
@@ -2003,6 +2237,42 @@ class TikTokDownloaderApp:
 
         os._exit(0)
 
+    # ----------------- Silent Auto-Updater Triggers -----------------
+    def start_silent_update_check(self):
+        """Silently checks for updates in background and prepares downloaded staging assets."""
+        try:
+            self.updater.check_and_download(callback_on_ready=self.on_update_downloaded)
+        except Exception:
+            pass
+
+    def manual_check_update(self):
+        """Manually triggers an update check with user dialog and activity log feedback."""
+        self.log(f"🔍 Checking for updates (current: v{APP_VERSION})...", tag="info")
+
+        def _on_ready(update_info):
+            self.on_update_downloaded(update_info)
+
+        def _on_none(reason=""):
+            if reason == "up_to_date" or not reason:
+                self.root.after(0, lambda: self.log(f"✅ You are already running the latest version (v{APP_VERSION}).", tag="success"))
+                self.root.after(0, lambda: messagebox.showinfo("Up to Date", f"You are already running the latest version (v{APP_VERSION}).", parent=self.root))
+            else:
+                self.root.after(0, lambda: self.log(f"⚠️ Update check notice: {reason}", tag="warn"))
+                self.root.after(0, lambda: messagebox.showwarning("Update Notice", f"Could not check for updates:\n{reason}", parent=self.root))
+
+        t = threading.Thread(target=lambda: self.updater._worker_routine(callback_on_ready=_on_ready, on_no_update=_on_none), daemon=True)
+        t.start()
+        return t
+
+    def on_update_downloaded(self, update_info):
+        """Called when update download and verification complete; pops up modern confirmation modal on main UI thread."""
+        def _show():
+            try:
+                UpdateReadyModal(self.root, update_info, on_update_confirm=lambda: apply_update_and_restart(update_info, app_instance=self))
+            except Exception:
+                pass
+        self.root.after(0, _show)
+
 
 def main():
     if "--smoke-test" in sys.argv or "--test" in sys.argv:
@@ -2055,6 +2325,8 @@ def main():
     app = TikTokDownloaderApp(root)
     try:
         root.mainloop()
+    except KeyboardInterrupt:
+        pass
     finally:
         lock.release()
 
