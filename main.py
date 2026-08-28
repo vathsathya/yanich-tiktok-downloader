@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.2.4"
+APP_VERSION = "1.2.5"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -1305,22 +1305,23 @@ class TikTokDownloaderApp:
 
 
 
-        style.configure("DarkBtn.TButton", background=THEME["btn_dark_bg"], foreground=THEME["text_primary"], borderwidth=1, bordercolor=THEME["card_border"], focusthickness=0, padding=5)
+        # Unified Equal Button Heights
+        style.configure("DarkBtn.TButton", background=THEME["btn_dark_bg"], foreground=THEME["text_primary"], font=("Arial", 9), borderwidth=1, bordercolor=THEME["card_border"], focusthickness=0, padding=(8, 4))
         style.map("DarkBtn.TButton", background=[("active", THEME["btn_dark_hover"]), ("disabled", THEME["card_bg"])], foreground=[("disabled", "#4b5563")])
 
-        style.configure("MicroBtn.TButton", background=THEME["btn_dark_bg"], foreground=THEME["text_primary"], font=("Arial", 8), borderwidth=1, bordercolor=THEME["card_border"], focusthickness=0, padding=(5, 1))
+        style.configure("MicroBtn.TButton", background=THEME["btn_dark_bg"], foreground=THEME["text_primary"], font=("Arial", 8), borderwidth=1, bordercolor=THEME["card_border"], focusthickness=0, padding=(6, 2))
         style.map("MicroBtn.TButton", background=[("active", THEME["btn_dark_hover"]), ("disabled", THEME["card_bg"])], foreground=[("disabled", "#4b5563")])
 
-        style.configure("PrimaryBtn.TButton", background=THEME["accent_cyan"], foreground="#090d16", font=("Arial", 10, "bold"), borderwidth=0, padding=8)
+        style.configure("PrimaryBtn.TButton", background=THEME["accent_cyan"], foreground="#090d16", font=("Arial", 9, "bold"), borderwidth=0, padding=(10, 4))
         style.map("PrimaryBtn.TButton", background=[("active", "#0891b2"), ("disabled", "#1e293b")], foreground=[("disabled", "#64748b")])
 
-        style.configure("DangerBtn.TButton", background=THEME["accent_rose"], foreground="#ffffff", font=("Arial", 9, "bold"), borderwidth=0, padding=8)
+        style.configure("DangerBtn.TButton", background=THEME["accent_rose"], foreground="#ffffff", font=("Arial", 9, "bold"), borderwidth=0, padding=(8, 4))
         style.map("DangerBtn.TButton", background=[("active", "#be123c"), ("disabled", "#1e293b")], foreground=[("disabled", "#64748b")])
 
-        style.configure("AmberBtn.TButton", background=THEME["accent_amber"], foreground="#ffffff", font=("Arial", 9, "bold"), borderwidth=0, padding=5)
+        style.configure("AmberBtn.TButton", background=THEME["accent_amber"], foreground="#ffffff", font=("Arial", 9, "bold"), borderwidth=0, padding=(8, 4))
         style.map("AmberBtn.TButton", background=[("active", "#b45309"), ("disabled", "#1e293b")], foreground=[("disabled", "#64748b")])
 
-        style.configure("PurpleBtn.TButton", background=THEME["accent_purple"], foreground="#ffffff", font=("Arial", 9, "bold"), borderwidth=0, padding=6)
+        style.configure("PurpleBtn.TButton", background=THEME["accent_purple"], foreground="#ffffff", font=("Arial", 9, "bold"), borderwidth=0, padding=(8, 4))
         style.map("PurpleBtn.TButton", background=[("active", "#9333ea"), ("disabled", "#1e293b")], foreground=[("disabled", "#64748b")])
 
         # Dark Treeview Styling
