@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -1245,8 +1245,9 @@ class TikTokDownloaderApp:
         tree_container.pack(fill="both", expand=True)
 
         columns = ("select", "ep", "title", "status", "size", "url", "action")
-        self.tree = ttk.Treeview(tree_container, columns=columns, show="headings", style="Dark.Treeview", selectmode="extended")
+        self.tree = ttk.Treeview(tree_container, columns=columns, show="tree headings", style="Dark.Treeview", selectmode="extended")
 
+        self.tree.heading("#0", text="📁 Drama / Series", anchor="w")
         self.tree.heading("select", text="[X]", command=self.toggle_select_all_items)
         self.tree.heading("ep", text="#")
         self.tree.heading("title", text="Video Title / Episode")
@@ -1255,11 +1256,12 @@ class TikTokDownloaderApp:
         self.tree.heading("url", text="TikTok Link")
         self.tree.heading("action", text="Action")
 
+        self.tree.column("#0", width=180, minwidth=140, anchor="w", stretch=False)
         self.tree.column("select", width=45, anchor="center", stretch=False)
-        self.tree.column("ep", width=55, anchor="center", stretch=False)
+        self.tree.column("ep", width=65, anchor="center", stretch=False)
         self.tree.column("title", minwidth=220, width=280, anchor="w", stretch=True)
-        self.tree.column("status", width=125, anchor="w", stretch=False)
-        self.tree.column("size", width=75, anchor="center", stretch=False)
+        self.tree.column("status", width=140, anchor="w", stretch=False)
+        self.tree.column("size", width=80, anchor="center", stretch=False)
         self.tree.column("url", width=125, anchor="center", stretch=False)
         self.tree.column("action", width=85, anchor="center", stretch=False)
 
@@ -1494,13 +1496,18 @@ class TikTokDownloaderApp:
             if not clean_prefix.endswith("_Ep_") and not clean_prefix.endswith("_"):
                 clean_prefix += "_Ep_"
             
-            # Automatically set dedicated subfolder for this drama series!
             target_subfolder = os.path.join(self.base_save_dir, clean_folder)
             self.save_dir_var.set(target_subfolder)
             self.prefix_var.set(clean_prefix)
-            self.log(f"🎬 Drama Series: '{raw_title}' -> Folder: {target_subfolder}", tag="info")
+            item_series_title = raw_title
+            item_save_dir = target_subfolder
+            item_prefix = clean_prefix
+            self.log(f"🎬 Drama Series: '{raw_title}' -> Subfolder: {target_subfolder}", tag="info")
+        else:
+            item_series_title = ""
+            item_save_dir = self.save_dir_var.get().strip()
+            item_prefix = self.prefix_var.get().strip()
 
-        prefix = self.prefix_var.get().strip()
         max_current_idx = max([it["idx"] for it in self.queue_items], default=0)
 
         # Calculate padding based on max episode number
@@ -1525,11 +1532,13 @@ class TikTokDownloaderApp:
             else:
                 ep_str = str(i).zfill(padding)
 
-            fname = f"{prefix}{ep_str}.mp4"
+            fname = f"{item_prefix}{ep_str}.mp4" if item_prefix else f"TikTok_Video_{ep_str}.mp4"
             item = {
                 "idx": i,
                 "selected": True,
                 "ep_str": ep_str,
+                "series_title": item_series_title,
+                "save_dir": item_save_dir,
                 "title": fname,
                 "status": "Pending",
                 "size": "--",
@@ -1537,7 +1546,7 @@ class TikTokDownloaderApp:
                 "video_url": entry.get("video_url", ""),
                 "cover_url": entry.get("cover_url", ""),
                 "filename": fname,
-                "filepath": os.path.join(self.save_dir_var.get().strip(), fname),
+                "filepath": os.path.join(item_save_dir, fname),
                 "cover_path": ""
             }
             new_items.append(item)
@@ -1552,19 +1561,127 @@ class TikTokDownloaderApp:
 
     def refresh_tree(self):
         self.tree.delete(*self.tree.get_children())
+        
+        # Group items by series_title
+        series_order = []
+        series_items_map = {}
+        standalone_items = []
+
         for item in self.queue_items:
-            chk = "☑" if item["selected"] else "☐"
-            ep_display = f"Ep {item['ep_str']}"
-            self.tree.insert("", "end", iid=str(item["idx"]), values=(
+            s_title = (item.get("series_title") or "").strip()
+            if s_title:
+                if s_title not in series_items_map:
+                    series_order.append(s_title)
+                    series_items_map[s_title] = []
+                series_items_map[s_title].append(item)
+            else:
+                standalone_items.append(item)
+
+        # 1. Insert Drama Series as Collapsible Parent Groups
+        for s_title in series_order:
+            s_items = series_items_map[s_title]
+            safe_slug = re.sub(r'[^a-zA-Z0-9_\u1780-\u17FF]', '_', s_title)[:40].strip('_') or "drama"
+            series_iid = f"series_{safe_slug}_{abs(hash(s_title)) % 100000}"
+
+            sel_count = sum(1 for it in s_items if it["selected"])
+            if sel_count == len(s_items):
+                s_chk = "☑"
+            elif sel_count == 0:
+                s_chk = "☐"
+            else:
+                s_chk = "◼"
+
+            completed = sum(1 for it in s_items if it["status"] in ("✅ Done", "⏭️ Skipped"))
+            if completed == len(s_items) and len(s_items) > 0:
+                s_status = f"🎉 All {len(s_items)} Done (100%)"
+            elif completed > 0:
+                pct = int((completed / len(s_items)) * 100)
+                s_status = f"⚡ {completed}/{len(s_items)} Done ({pct}%)"
+            else:
+                s_status = f"⏳ Ready ({len(s_items)} EPs)"
+
+            self.tree.insert("", "end", iid=series_iid, text=f"🎬 {s_title}", values=(
+                s_chk,
+                f"{len(s_items)} EPs",
+                s_title,
+                s_status,
+                "--",
+                "📁 Subfolder",
+                "⬇ Download"
+            ), open=True)
+
+            for it in s_items:
+                chk = "☑" if it["selected"] else "☐"
+                ep_display = f"Ep {it.get('ep_str', it['idx'])}"
+                self.tree.insert(series_iid, "end", iid=str(it["idx"]), text="", values=(
+                    chk,
+                    ep_display,
+                    it["title"],
+                    it["status"],
+                    it["size"],
+                    "🌐 Open Link ↗",
+                    "🔁 Retry"
+                ))
+
+        # 2. Insert Standalone / Single Videos directly at root
+        for it in standalone_items:
+            chk = "☑" if it["selected"] else "☐"
+            ep_display = f"#{it['idx']}"
+            self.tree.insert("", "end", iid=str(it["idx"]), text=f"📹 Video #{it['idx']}", values=(
                 chk,
                 ep_display,
-                item["title"],
-                item["status"],
-                item["size"],
+                it["title"],
+                it["status"],
+                it["size"],
                 "🌐 Open Link ↗",
                 "🔁 Retry"
             ))
+
         self.update_selection_counter()
+
+    def update_series_parent_row(self, series_iid):
+        if not self.tree.exists(series_iid):
+            return
+        children = self.tree.get_children(series_iid)
+        if not children:
+            return
+        total = len(children)
+        completed = 0
+        total_size_mb = 0.0
+        selected_count = 0
+        for ch in children:
+            ch_item = next((it for it in self.queue_items if str(it["idx"]) == ch), None)
+            if ch_item:
+                if ch_item["selected"]:
+                    selected_count += 1
+                if ch_item["status"] in ("✅ Done", "⏭️ Skipped"):
+                    completed += 1
+                sz = ch_item.get("size", "")
+                if "MB" in sz:
+                    try:
+                        total_size_mb += float(sz.replace("MB", "").strip())
+                    except ValueError:
+                        pass
+
+        if selected_count == total:
+            chk = "☑"
+        elif selected_count == 0:
+            chk = "☐"
+        else:
+            chk = "◼"
+        self.tree.set(series_iid, column="select", value=chk)
+
+        if completed == total and total > 0:
+            status_str = f"🎉 All {total} Done (100%)"
+        elif completed > 0:
+            pct = int((completed / total) * 100)
+            status_str = f"⚡ {completed}/{total} Done ({pct}%)"
+        else:
+            status_str = f"⏳ Ready ({total} EPs)"
+
+        self.tree.set(series_iid, column="status", value=status_str)
+        if total_size_mb > 0:
+            self.tree.set(series_iid, column="size", value=f"{total_size_mb:.1f} MB")
 
     def update_selection_counter(self):
         sel_count = sum(1 for it in self.queue_items if it["selected"])
@@ -1578,40 +1695,90 @@ class TikTokDownloaderApp:
 
     def on_tree_click(self, event):
         region = self.tree.identify_region(event.x, event.y)
-        if region == "cell":
+        if region in ("cell", "tree"):
             col = self.tree.identify_column(event.x)
             item_id = self.tree.identify_row(event.y)
-            if item_id:
-                idx = int(item_id)
-                target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
-                if not target_item:
-                    return
+            if not item_id:
+                return
 
-                if col == "#1":  # select column
-                    target_item["selected"] = not target_item["selected"]
-                    chk = "☑" if target_item["selected"] else "☐"
-                    self.tree.set(item_id, column="select", value=chk)
+            # Check if this is a Series Parent Node
+            if item_id.startswith("series_"):
+                children = self.tree.get_children(item_id)
+                if col in ("#0", "#1"):  # Checkbox toggle for entire series
+                    current_chk = self.tree.set(item_id, column="select")
+                    target_state = (current_chk != "☑")
+                    for ch in children:
+                        ch_item = next((it for it in self.queue_items if str(it["idx"]) == ch), None)
+                        if ch_item:
+                            ch_item["selected"] = target_state
+                            self.tree.set(ch, column="select", value="☑" if target_state else "☐")
+                    self.update_series_parent_row(item_id)
                     self.update_selection_counter()
-                elif col == "#6":  # url column -> open link in browser
-                    url = target_item.get("url")
-                    if url:
-                        webbrowser.open(url)
-                        self.log(f"🌐 Opened TikTok in Browser: {url}", tag="info")
-                elif col == "#7":  # action column -> retry this item
-                    self.retry_single_item(idx)
+                elif col == "#6":  # Open Subfolder
+                    s_items = [it for it in self.queue_items if str(it["idx"]) in children]
+                    if s_items:
+                        folder = s_items[0].get("save_dir") or self.save_dir_var.get().strip()
+                        self._open_dir(folder)
+                elif col == "#7":  # Download this series
+                    s_items = [it for it in self.queue_items if str(it["idx"]) in children and it["selected"]]
+                    if s_items:
+                        self.run_batch_job(s_items, self.save_dir_var.get().strip(), self.threads_var.get())
+                return
+
+            # Normal child episode or standalone single video item
+            try:
+                idx = int(item_id)
+            except ValueError:
+                return
+            target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
+            if not target_item:
+                return
+
+            if col in ("#0", "#1"):  # select column
+                target_item["selected"] = not target_item["selected"]
+                chk = "☑" if target_item["selected"] else "☐"
+                self.tree.set(item_id, column="select", value=chk)
+                parent_iid = self.tree.parent(item_id)
+                if parent_iid and parent_iid.startswith("series_"):
+                    self.update_series_parent_row(parent_iid)
+                self.update_selection_counter()
+            elif col == "#6":  # url column -> open link in browser
+                url = target_item.get("url")
+                if url:
+                    webbrowser.open(url)
+                    self.log(f"🌐 Opened TikTok in Browser: {url}", tag="info")
+            elif col == "#7":  # action column -> retry this item
+                self.retry_single_item(idx)
 
     def toggle_selected_rows(self):
         selected_iids = self.tree.selection()
         if not selected_iids:
             return
         for iid in selected_iids:
-            idx = int(iid)
-            for it in self.queue_items:
-                if it["idx"] == idx:
-                    it["selected"] = not it["selected"]
-                    chk = "☑" if it["selected"] else "☐"
-                    self.tree.set(iid, column="select", value=chk)
-                    break
+            if iid.startswith("series_"):
+                children = self.tree.get_children(iid)
+                current_chk = self.tree.set(iid, column="select")
+                target_state = (current_chk != "☑")
+                for ch in children:
+                    ch_item = next((it for it in self.queue_items if str(it["idx"]) == ch), None)
+                    if ch_item:
+                        ch_item["selected"] = target_state
+                        self.tree.set(ch, column="select", value="☑" if target_state else "☐")
+                self.update_series_parent_row(iid)
+            else:
+                try:
+                    idx = int(iid)
+                    for it in self.queue_items:
+                        if it["idx"] == idx:
+                            it["selected"] = not it["selected"]
+                            chk = "☑" if it["selected"] else "☐"
+                            self.tree.set(iid, column="select", value=chk)
+                            parent_iid = self.tree.parent(iid)
+                            if parent_iid and parent_iid.startswith("series_"):
+                                self.update_series_parent_row(parent_iid)
+                            break
+                except ValueError:
+                    pass
         self.update_selection_counter()
 
     def show_tree_context_menu(self, event):
@@ -1624,23 +1791,38 @@ class TikTokDownloaderApp:
     def context_preview_video(self):
         selected = self.tree.selection()
         if selected:
-            idx = int(selected[0])
-            self.launch_preview_for_idx(idx)
+            iid = selected[0]
+            if not iid.startswith("series_"):
+                try:
+                    idx = int(iid)
+                    self.launch_preview_for_idx(idx)
+                except ValueError:
+                    pass
 
     def context_retry_item(self):
         selected = self.tree.selection()
         if selected:
-            idx = int(selected[0])
-            self.retry_single_item(idx)
+            iid = selected[0]
+            if not iid.startswith("series_"):
+                try:
+                    idx = int(iid)
+                    self.retry_single_item(idx)
+                except ValueError:
+                    pass
 
     def context_open_url(self):
         selected = self.tree.selection()
         if selected:
-            idx = int(selected[0])
-            target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
-            if target_item and target_item.get("url"):
-                webbrowser.open(target_item["url"])
-                self.log(f"🌐 Opened TikTok in Browser: {target_item['url']}", tag="info")
+            for iid in selected:
+                if not iid.startswith("series_"):
+                    try:
+                        idx = int(iid)
+                        target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
+                        if target_item and target_item.get("url"):
+                            webbrowser.open(target_item["url"])
+                            self.log(f"🌐 Opened TikTok in Browser: {target_item['url']}", tag="info")
+                    except ValueError:
+                        pass
 
     def retry_single_item(self, idx):
         target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
@@ -1650,37 +1832,64 @@ class TikTokDownloaderApp:
             messagebox.showinfo("Download in Progress", "Please wait for current batch or click Stop before retrying a single item.")
             return
 
-        save_dir = self.save_dir_var.get().strip()
+        save_dir = target_item.get("save_dir") or self.save_dir_var.get().strip()
         target_item["status"] = "Pending"
         self.update_row_in_tree(idx, status="Pending")
         self.log(f"🔁 Retrying download for Episode {target_item.get('ep_str', idx)}...", tag="info")
         self.run_batch_job([target_item], save_dir, 1)
 
+    def _open_dir(self, folder):
+        try:
+            if not os.path.exists(folder):
+                os.makedirs(folder, exist_ok=True)
+            if sys.platform == "win32":
+                os.startfile(folder)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", folder])
+            else:
+                subprocess.Popen(["xdg-open", folder])
+        except Exception as e:
+            self.log(f"⚠️ Failed to open folder: {e}", tag="warn")
+
     def context_show_in_folder(self):
         selected = self.tree.selection()
         if selected:
-            idx = int(selected[0])
-            target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
-            if target_item and os.path.exists(target_item.get("filepath", "")):
-                folder = os.path.dirname(target_item["filepath"])
-                if sys.platform == "win32":
-                    os.startfile(folder)
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", folder])
-                else:
-                    subprocess.Popen(["xdg-open", folder])
+            iid = selected[0]
+            if iid.startswith("series_"):
+                children = self.tree.get_children(iid)
+                s_items = [it for it in self.queue_items if str(it["idx"]) in children]
+                if s_items:
+                    folder = s_items[0].get("save_dir") or self.save_dir_var.get().strip()
+                    self._open_dir(folder)
+                    return
             else:
-                self.open_save_folder()
+                try:
+                    idx = int(iid)
+                    target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
+                    if target_item and os.path.exists(target_item.get("filepath", "")):
+                        folder = os.path.dirname(target_item["filepath"])
+                        self._open_dir(folder)
+                        return
+                    elif target_item and target_item.get("save_dir"):
+                        self._open_dir(target_item["save_dir"])
+                        return
+                except ValueError:
+                    pass
+            self.open_save_folder()
 
     def context_copy_url(self):
         selected = self.tree.selection()
         if selected:
             urls = []
             for iid in selected:
-                idx = int(iid)
-                target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
-                if target_item:
-                    urls.append(target_item["url"])
+                if not iid.startswith("series_"):
+                    try:
+                        idx = int(iid)
+                        target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
+                        if target_item and target_item.get("url"):
+                            urls.append(target_item["url"])
+                    except ValueError:
+                        pass
             if urls:
                 self.root.clipboard_clear()
                 self.root.clipboard_append("\n".join(urls))
@@ -1688,14 +1897,25 @@ class TikTokDownloaderApp:
     def on_tree_double_click(self, event):
         item_id = self.tree.identify_row(event.y)
         if item_id:
-            idx = int(item_id)
-            target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
-            if target_item:
-                filepath = target_item.get("filepath", "")
-                if os.path.exists(filepath):
-                    self.launch_preview_for_idx(idx)
-                else:
-                    self.retry_single_item(idx)
+            if item_id.startswith("series_"):
+                # Double clicking a series node opens its folder
+                children = self.tree.get_children(item_id)
+                s_items = [it for it in self.queue_items if str(it["idx"]) in children]
+                if s_items:
+                    folder = s_items[0].get("save_dir") or self.save_dir_var.get().strip()
+                    self._open_dir(folder)
+                return
+            try:
+                idx = int(item_id)
+                target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
+                if target_item:
+                    filepath = target_item.get("filepath", "")
+                    if os.path.exists(filepath):
+                        self.launch_preview_for_idx(idx)
+                    else:
+                        self.retry_single_item(idx)
+            except ValueError:
+                pass
 
     def launch_preview_for_idx(self, idx):
         target_item = next((it for it in self.queue_items if it["idx"] == idx), None)
@@ -1720,8 +1940,33 @@ class TikTokDownloaderApp:
         self.refresh_tree()
 
     def remove_selected_items(self):
-        self.queue_items = [it for it in self.queue_items if not it["selected"]]
+        selected_iids = list(self.tree.selection())
+        indices_to_remove = set()
+        
+        for iid in selected_iids:
+            if iid.startswith("series_"):
+                children = self.tree.get_children(iid)
+                for ch in children:
+                    try:
+                        indices_to_remove.add(int(ch))
+                    except ValueError:
+                        pass
+            else:
+                try:
+                    indices_to_remove.add(int(iid))
+                except ValueError:
+                    pass
+
+        # Also remove any items whose checkbox was unchecked if nothing is highlighted
+        if not indices_to_remove:
+            indices_to_remove = {it["idx"] for it in self.queue_items if it["selected"]}
+
+        if not indices_to_remove:
+            return
+
+        self.queue_items = [it for it in self.queue_items if it["idx"] not in indices_to_remove]
         self.refresh_tree()
+        self.log(f"🗑️ Removed {len(indices_to_remove)} item(s) from queue.", tag="info")
 
     def clear_all_items(self):
         self.queue_items = []
@@ -1942,20 +2187,25 @@ class TikTokDownloaderApp:
         supervisor.start()
 
     def update_row_in_tree(self, item_id, title=None, status=None, size=None):
-        if self.tree.exists(str(item_id)):
+        iid_str = str(item_id)
+        if self.tree.exists(iid_str):
             if title:
-                self.tree.set(str(item_id), column="title", value=title)
+                self.tree.set(iid_str, column="title", value=title)
             if status:
-                self.tree.set(str(item_id), column="status", value=status)
+                self.tree.set(iid_str, column="status", value=status)
             if size:
-                self.tree.set(str(item_id), column="size", value=size)
+                self.tree.set(iid_str, column="size", value=size)
+
+            parent_iid = self.tree.parent(iid_str)
+            if parent_iid and parent_iid.startswith("series_") and self.tree.exists(parent_iid):
+                self.update_series_parent_row(parent_iid)
 
     def worker_thread_loop(self, worker_id, save_dir):
         delay = self.delay_var.get()
         skip_existing = self.skip_existing_var.get()
         save_thumbnails = self.save_thumbnails_var.get()
         prefix = self.prefix_var.get().strip()
-        worker_session = create_http_session(pool_size=6)
+        worker_session = create_http_session(pool_size=16)
 
         while not self.should_stop:
             try:
@@ -1965,15 +2215,20 @@ class TikTokDownloaderApp:
 
             idx = item["idx"]
             url = item["url"]
+            effective_save_dir = item.get("save_dir") or save_dir
+            try:
+                os.makedirs(effective_save_dir, exist_ok=True)
+            except Exception:
+                pass
             filename = item["filename"]
             ep_str = item.get("ep_str", str(idx).zfill(2))
-            filepath = os.path.join(save_dir, filename)
+            filepath = os.path.join(effective_save_dir, filename)
 
             # 1. Smart Skip Check with Integrity Verification
             candidate_files = [
                 filepath,
-                os.path.join(save_dir, f"{item.get('title', '')}.mp4"),
-                os.path.join(save_dir, f"{item.get('title', '')}")
+                os.path.join(effective_save_dir, f"{item.get('title', '')}.mp4"),
+                os.path.join(effective_save_dir, f"{item.get('title', '')}")
             ]
             already_downloaded_path = None
             for c_path in candidate_files:
@@ -2055,7 +2310,7 @@ class TikTokDownloaderApp:
                         final_filename = filename
                         meta_title = os.path.splitext(filename)[0]
 
-                    final_filepath = os.path.join(save_dir, final_filename)
+                    final_filepath = os.path.join(effective_save_dir, final_filename)
                     part_filepath = f"{final_filepath}.part"
 
                     # High-throughput 512KB stream buffering with CDN Range acceleration

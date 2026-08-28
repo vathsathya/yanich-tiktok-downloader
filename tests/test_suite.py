@@ -449,6 +449,57 @@ class TestTkinterAppLifecycle:
         assert len(app.queue_items) == 2
         assert app.queue_items[0]["url"] == "https://www.tiktok.com/@user/video/1111111111111111111"
 
+    def test_hybrid_nested_treeview_and_cascading_selection(self, app_instance):
+        app, root, tmp_path = app_instance
+        app.clear_all_items()
+
+        # 1. Add Series items
+        series_items = [
+            {"episode": 1, "url": "https://www.tiktok.com/@user/video/1111111111111111111"},
+            {"episode": 2, "url": "https://www.tiktok.com/@user/video/2222222222222222222"}
+        ]
+        app.load_urls_into_queue(series_items, series_title="The CEO Secret")
+
+        # 2. Add Standalone item
+        single_item = ["https://www.tiktok.com/@user/video/3333333333333333333"]
+        app.load_urls_into_queue(single_item)
+
+        # Check tree nodes
+        root_children = app.tree.get_children("")
+        # Should have 2 root nodes: 1 series parent node and 1 standalone video node
+        assert len(root_children) == 2
+        series_node = [node for node in root_children if node.startswith("series_")][0]
+        standalone_node = [node for node in root_children if not node.startswith("series_")][0]
+
+        # Check series children
+        series_children = app.tree.get_children(series_node)
+        assert len(series_children) == 2
+        assert set(series_children) == {"1", "2"}
+        assert standalone_node == "3"
+
+        # Check initial selection
+        assert app.tree.set(series_node, "select") == "☑"
+
+        # Toggle series selection via simulated event
+        mock_event = MagicMock()
+        mock_event.x = 10
+        mock_event.y = 10
+        with patch.object(app.tree, "identify_region", return_value="cell"), \
+             patch.object(app.tree, "identify_column", return_value="#1"), \
+             patch.object(app.tree, "identify_row", return_value=series_node):
+            app.on_tree_click(mock_event)
+
+        # Series children should now be deselected
+        assert not app.queue_items[0]["selected"]
+        assert not app.queue_items[1]["selected"]
+        assert app.queue_items[2]["selected"] # standalone remains selected
+        assert app.tree.set(series_node, "select") == "☐"
+
+        # Test partial selection
+        app.queue_items[0]["selected"] = True
+        app.update_series_parent_row(series_node)
+        assert app.tree.set(series_node, "select") == "◼"
+
 
 class TestDownloadWorkerExecution:
     @patch("subprocess.run")
@@ -670,8 +721,8 @@ class TestAutoUpdater:
             if "releases/latest" in url:
                 resp.status_code = 200
                 resp.json.return_value = {
-                    "tag_name": "v1.1.1",
-                    "body": "Version 1.1.1 update notes",
+                    "tag_name": "v1.1.2",
+                    "body": "Version 1.1.2 update notes",
                     "assets": [
                         {
                             "name": "TikTokDownloader-Windows-AMD64.zip",
@@ -696,8 +747,8 @@ class TestAutoUpdater:
 
         assert len(callback_data) == 1
         update_info = callback_data[0]
-        assert update_info["version"] == "v1.1.1"
-        assert update_info["current_version"] == "1.1.0"
+        assert update_info["version"] == "v1.1.2"
+        assert update_info["current_version"] == "1.1.1"
 
         # Test apply in dev mode safely
         with patch("main.messagebox.showinfo") as mock_box:
