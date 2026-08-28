@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -75,6 +75,20 @@ def get_resource_path(relative_path):
     """Get absolute path to resource, works for dev and for PyInstaller bundled apps."""
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
+
+def get_app_state_path():
+    """Returns the platform-specific path for persistent app state JSON."""
+    if sys.platform == "win32":
+        base_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+        state_dir = os.path.join(base_dir, "TikTokDownloader")
+    else:
+        base_dir = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+        state_dir = os.path.join(base_dir, "TikTokDownloader")
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(state_dir, "app_state.json")
 
 # Module-Level Precompiled Regex Patterns for High Performance
 TIKTOK_URL_RE = re.compile(r'https?://(?:www\.|vt\.|vm\.|m\.)?tiktok\.com/[^\s"\'<>]+', re.IGNORECASE)
@@ -1165,6 +1179,7 @@ class TikTokDownloaderApp:
         self.updater = SilentAutoUpdater(app_version=APP_VERSION, repo=GITHUB_REPO)
         self.root.after(6000, self.start_silent_update_check)
         self.root.protocol("WM_DELETE_WINDOW", self.on_app_close)
+        self.root.after(50, self.load_app_state)
         self.log("💡 Tip: Click '🌐 Browser Setup Helper' on TikTok, or press Ctrl+V / '+ Add Links...' to load drama episodes.", tag="info")
 
     def setup_styles(self):
@@ -2116,6 +2131,82 @@ class TikTokDownloaderApp:
             return
 
         VideoPreviewModal(self.root, preview_list)
+
+    # ----------------- App State Persistence & Graceful Shutdown -----------------
+    def save_app_state(self):
+        """Atomically saves the current session queue and user preferences to disk."""
+        try:
+            state_path = get_app_state_path()
+            state_dir = os.path.dirname(state_path)
+            os.makedirs(state_dir, exist_ok=True)
+
+            data = {
+                "version": APP_VERSION,
+                "saved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "settings": {
+                    "save_dir": self.save_dir_var.get().strip(),
+                    "threads": self.threads_var.get(),
+                    "skip_existing": self.skip_existing_var.get(),
+                    "prefix": self.prefix_var.get().strip()
+                },
+                "queue": self.queue_items
+            }
+            tmp_path = f"{state_path}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, state_path)
+        except Exception:
+            pass
+
+    def load_app_state(self):
+        """Loads and hydrates the previous session queue and user preferences."""
+        state_path = get_app_state_path()
+        if not os.path.exists(state_path):
+            return
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            settings = data.get("settings", {})
+            if "save_dir" in settings and os.path.exists(settings["save_dir"]):
+                self.save_dir_var.set(settings["save_dir"])
+                self.base_save_dir = settings["save_dir"]
+            if "threads" in settings:
+                try:
+                    self.threads_var.set(int(settings["threads"]))
+                except Exception:
+                    pass
+            if "skip_existing" in settings:
+                self.skip_existing_var.set(bool(settings["skip_existing"]))
+            if "prefix" in settings and settings["prefix"]:
+                self.prefix_var.set(settings["prefix"])
+
+            queue_data = data.get("queue", [])
+            if queue_data:
+                self.queue_items = queue_data
+                self.refresh_tree()
+                self.log(f"💾 Restored previous session ({len(self.queue_items)} items in queue)", tag="info")
+        except Exception as e:
+            self.log(f"⚠️ Could not load previous session: {e}", tag="warn")
+
+    def on_app_close(self):
+        """Handles application shutdown gracefully."""
+        self.should_stop = True
+        self.save_app_state()
+        if hasattr(self, "bridge_server") and self.bridge_server:
+            try:
+                self.bridge_server.shutdown()
+            except Exception:
+                pass
+        if hasattr(self, "app_lock") and self.app_lock:
+            try:
+                self.app_lock.release()
+            except Exception:
+                pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
     # ----------------- Download Engine & Worker Pool -----------------
     def toggle_download_state(self):

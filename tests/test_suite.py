@@ -500,6 +500,36 @@ class TestTkinterAppLifecycle:
         app.update_series_parent_row(series_node)
         assert app.tree.set(series_node, "select") == "◼"
 
+    def test_auto_save_and_restore_session(self, app_instance, tmp_path):
+        app, root, _ = app_instance
+        app.clear_all_items()
+        test_state_file = str(tmp_path / "test_app_state.json")
+
+        with patch("main.get_app_state_path", return_value=test_state_file):
+            items = [
+                {"episode": 1, "url": "https://www.tiktok.com/@user/video/1111111111111111111"},
+                {"episode": 2, "url": "https://www.tiktok.com/@user/video/2222222222222222222"}
+            ]
+            app.load_urls_into_queue(items, series_title="Persisted Drama")
+            app.threads_var.set(4)
+            app.save_app_state()
+
+            assert os.path.exists(test_state_file)
+            with open(test_state_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            assert data["settings"]["threads"] == 4
+            assert len(data["queue"]) == 2
+
+            # Now create a fresh app and test load_app_state
+            app.clear_all_items()
+            app.threads_var.set(1)
+            assert len(app.queue_items) == 0
+
+            app.load_app_state()
+            assert len(app.queue_items) == 2
+            assert app.threads_var.get() == 4
+            assert app.queue_items[0]["series_title"] == "Persisted Drama"
+
 
 class TestDownloadWorkerExecution:
     @patch("subprocess.run")
@@ -721,8 +751,8 @@ class TestAutoUpdater:
             if "releases/latest" in url:
                 resp.status_code = 200
                 resp.json.return_value = {
-                    "tag_name": "v1.1.2",
-                    "body": "Version 1.1.2 update notes",
+                    "tag_name": "v1.1.3",
+                    "body": "Version 1.1.3 update notes",
                     "assets": [
                         {
                             "name": "TikTokDownloader-Windows-AMD64.zip",
@@ -747,8 +777,8 @@ class TestAutoUpdater:
 
         assert len(callback_data) == 1
         update_info = callback_data[0]
-        assert update_info["version"] == "v1.1.2"
-        assert update_info["current_version"] == "1.1.1"
+        assert update_info["version"] == "v1.1.3"
+        assert update_info["current_version"] == "1.1.2"
 
         # Test apply in dev mode safely
         with patch("main.messagebox.showinfo") as mock_box:
