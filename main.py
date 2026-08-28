@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -983,9 +983,16 @@ def apply_update_and_restart(update_info, app_instance=None):
 
         if sys.platform == "win32":
             script_path = os.path.join(app_dir, "apply_update.bat")
+            ps_script = (
+                f"$tmp = Join-Path $env:TEMP ('tt_upd_' + [guid]::NewGuid().ToString('N')); "
+                f"Expand-Archive -LiteralPath '{archive_path}' -DestinationPath $tmp -Force; "
+                f"$src = $tmp; "
+                f"if (Test-Path (Join-Path $tmp 'TikTokDownloader')) {{ $src = Join-Path $tmp 'TikTokDownloader' }}; "
+                f"Copy-Item -Path (Join-Path $src '*') -Destination '{app_dir}' -Recurse -Force; "
+                f"Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue"
+            )
             script_content = f"""@echo off
 setlocal
-echo Updating TikTok Downloader...
 :wait_loop
 tasklist /FI "PID eq {current_pid}" 2>NUL | find /I "{current_pid}" >NUL
 if "%ERRORLEVEL%"=="0" (
@@ -993,7 +1000,7 @@ if "%ERRORLEVEL%"=="0" (
     goto wait_loop
 )
 
-tar -xf "{archive_path}" -C "{app_dir}" 2>NUL || powershell -command "Expand-Archive -Path '{archive_path}' -DestinationPath '{app_dir}' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "{ps_script}"
 
 start "" "{exe_path}"
 del "%~f0" & exit
@@ -1013,7 +1020,15 @@ del "%~f0" & exit
 while kill -0 {current_pid} 2>/dev/null; do
     sleep 0.5
 done
-tar -xzf "{archive_path}" -C "{app_dir}"
+TMP_DIR="/tmp/tt_update_$$"
+mkdir -p "$TMP_DIR"
+tar -xzf "{archive_path}" -C "$TMP_DIR"
+if [ -d "$TMP_DIR/TikTokDownloader" ]; then
+    cp -rf "$TMP_DIR/TikTokDownloader/"* "{app_dir}/"
+else
+    cp -rf "$TMP_DIR/"* "{app_dir}/"
+fi
+rm -rf "$TMP_DIR"
 chmod +x "{exe_path}"
 nohup "{exe_path}" >/dev/null 2>&1 &
 rm -f "$0"

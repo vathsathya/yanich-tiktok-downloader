@@ -32,6 +32,7 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install System Dependencies (Xvfb & Tkinter)
         run: |
@@ -39,9 +40,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
 
       - name: Run Pytest Suite under Xvfb
         run: |
@@ -68,16 +67,15 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
 
       - name: Build Application with PyInstaller
         run: |
-          pyinstaller --clean TikTokDownloader.spec
+          pyinstaller --clean -y TikTokDownloader.spec
 
       - name: Automated Smoke Test (Linux)
         if: runner.os == 'Linux'

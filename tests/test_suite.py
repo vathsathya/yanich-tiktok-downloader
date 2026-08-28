@@ -670,8 +670,8 @@ class TestAutoUpdater:
             if "releases/latest" in url:
                 resp.status_code = 200
                 resp.json.return_value = {
-                    "tag_name": "v1.0.8",
-                    "body": "Version 1.0.8 update notes",
+                    "tag_name": "v1.0.9",
+                    "body": "Version 1.0.9 update notes",
                     "assets": [
                         {
                             "name": "TikTokDownloader-Windows-AMD64.zip",
@@ -696,8 +696,8 @@ class TestAutoUpdater:
 
         assert len(callback_data) == 1
         update_info = callback_data[0]
-        assert update_info["version"] == "v1.0.8"
-        assert update_info["current_version"] == "1.0.7"
+        assert update_info["version"] == "v1.0.9"
+        assert update_info["current_version"] == "1.0.8"
 
         # Test apply in dev mode safely
         with patch("main.messagebox.showinfo") as mock_box:
