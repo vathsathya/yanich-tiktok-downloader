@@ -549,12 +549,18 @@ class TestTkinterAppLifecycle:
         test_urls = ["https://www.tiktok.com/@user/video/9999999999999999999"]
         app.handle_auto_clipboard_urls(test_urls)
 
+        # Modal should be open with links pre-filled
+        assert hasattr(app, "_active_add_modal") and app._active_add_modal.winfo_exists()
+        modal = app._active_add_modal
+        assert test_urls[0] in modal.url_text.get("1.0", "end")
+        
+        # Test submitting from the smart modal with series title
+        modal.series_title_var.set("Test Drama Series")
+        modal.submit_links()
+
         assert len(app.queue_items) == 1
         assert app.queue_items[0]["url"] == test_urls[0]
-
-        # Duplicate URL should not be added twice
-        app.handle_auto_clipboard_urls(test_urls)
-        assert len(app.queue_items) == 1
+        assert app.queue_items[0]["series_title"] == "Test Drama Series"
 
     def test_toggle_activity_log_view(self, app_instance):
         app, root, _ = app_instance
@@ -808,8 +814,8 @@ class TestAutoUpdater:
             if "releases/latest" in url:
                 resp.status_code = 200
                 resp.json.return_value = {
-                    "tag_name": "v1.1.7",
-                    "body": "Version 1.1.7 update notes",
+                    "tag_name": "v1.1.8",
+                    "body": "Version 1.1.8 update notes",
                     "assets": [
                         {
                             "name": "TikTokDownloader-Windows-AMD64.zip",
@@ -834,8 +840,8 @@ class TestAutoUpdater:
 
         assert len(callback_data) == 1
         update_info = callback_data[0]
-        assert update_info["version"] == "v1.1.7"
-        assert update_info["current_version"] == "1.1.6"
+        assert update_info["version"] == "v1.1.8"
+        assert update_info["current_version"] == "1.1.7"
 
         # Test apply in dev mode safely
         with patch("main.messagebox.showinfo") as mock_box:

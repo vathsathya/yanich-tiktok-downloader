@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.1.6"
+APP_VERSION = "1.1.7"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -530,7 +530,7 @@ class ModernProgressBar(tk.Canvas):
 
 # ----------------- Add Links Modal Dialog -----------------
 class AddLinksModal(tk.Toplevel):
-    def __init__(self, parent, on_load_callback, auto_paste=False):
+    def __init__(self, parent, on_load_callback, auto_paste=False, pre_filled_urls=None):
         super().__init__(parent)
         self.title("➕ Add TikTok Video Links")
         self.geometry("620x480")
@@ -541,8 +541,14 @@ class AddLinksModal(tk.Toplevel):
 
         self.on_load_callback = on_load_callback
         self.setup_ui()
-        if auto_paste:
+        if pre_filled_urls:
+            self.url_text.insert("1.0", "\n".join(pre_filled_urls))
+            self.update_modal_count()
+            self.after(60, self.series_entry.focus_set)
+        elif auto_paste:
             self.after(80, self.paste_clipboard)
+        else:
+            self.after(60, self.series_entry.focus_set)
 
     def setup_ui(self):
         # 1. Header (Top)
@@ -571,7 +577,9 @@ class AddLinksModal(tk.Toplevel):
         title_box.pack(fill="x", pady=(0, 8))
         tk.Label(title_box, text="Drama / Series Title (Optional):", bg=THEME["bg"], fg=THEME["accent_cyan"], font=("Arial", 9, "bold")).pack(side="left", padx=(0, 6))
         self.series_title_var = tk.StringVar(value="")
-        ttk.Entry(title_box, textvariable=self.series_title_var, style="Dark.TEntry").pack(side="left", fill="x", expand=True)
+        self.series_entry = ttk.Entry(title_box, textvariable=self.series_title_var, style="Dark.TEntry")
+        self.series_entry.pack(side="left", fill="x", expand=True)
+        self.series_entry.bind("<Return>", lambda e: self.submit_links())
 
         text_container = tk.Frame(body, bg=THEME["input_bg"], highlightbackground=THEME["card_border"], highlightthickness=1)
         text_container.pack(fill="both", expand=True)
@@ -1481,13 +1489,17 @@ class TikTokDownloaderApp:
                 messagebox.showerror("Import Error", f"Failed to import queue: {ex}")
 
     def open_add_links_modal(self):
-        AddLinksModal(self.root, self.load_urls_into_queue)
+        modal = AddLinksModal(self.root, self.load_urls_into_queue)
+        self._active_add_modal = modal
+        return modal
 
     def quick_paste_add_modal(self):
         focused = self.root.focus_get()
         if isinstance(focused, (tk.Entry, ttk.Entry, tk.Text)):
             return
-        AddLinksModal(self.root, self.load_urls_into_queue, auto_paste=True)
+        modal = AddLinksModal(self.root, self.load_urls_into_queue, auto_paste=True)
+        self._active_add_modal = modal
+        return modal
 
     def load_urls_into_queue(self, items, series_title=""):
         if not items:
@@ -2307,12 +2319,33 @@ class TikTokDownloaderApp:
     def handle_auto_clipboard_urls(self, urls):
         if not urls or not self.auto_clipboard_var.get():
             return
-        # Check for unseen URLs
-        existing_urls = {it.get("url") for it in self.queue_items}
-        new_urls = [u for u in urls if u not in existing_urls]
-        if new_urls:
-            self.load_urls_into_queue(new_urls)
-            self.log(f"📋 [Auto-Clipboard] Detected & loaded {len(new_urls)} new TikTok link(s) into queue!", tag="info")
+        
+        # Bring app window to front
+        self.bring_window_to_front()
+
+        # Check if an AddLinksModal is already active
+        if hasattr(self, "_active_add_modal") and self._active_add_modal and self._active_add_modal.winfo_exists():
+            modal = self._active_add_modal
+            existing_content = modal.url_text.get("1.0", "end-1c").strip()
+            if existing_content:
+                existing_lines = set(line.strip() for line in existing_content.split("\n") if line.strip())
+                urls_to_add = [u for u in urls if u not in existing_lines]
+                if urls_to_add:
+                    modal.url_text.insert("end", "\n" + "\n".join(urls_to_add))
+            else:
+                modal.url_text.insert("1.0", "\n".join(urls))
+            modal.update_modal_count()
+            modal.lift()
+            if hasattr(modal, "series_entry"):
+                modal.series_entry.focus_set()
+        else:
+            modal = AddLinksModal(self.root, on_load_callback=self.load_urls_into_queue, pre_filled_urls=urls)
+            self._active_add_modal = modal
+            modal.lift()
+            if hasattr(modal, "series_entry"):
+                modal.series_entry.focus_set()
+
+        self.log(f"📋 [Auto-Clipboard] Detected {len(urls)} link(s) -> Opened Add Links Window for Title.", tag="info")
 
     # ----------------- Download Engine & Worker Pool -----------------
     def toggle_download_state(self):
