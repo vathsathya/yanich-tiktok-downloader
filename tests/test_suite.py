@@ -530,6 +530,40 @@ class TestTkinterAppLifecycle:
             assert app.threads_var.get() == 4
             assert app.queue_items[0]["series_title"] == "Persisted Drama"
 
+    def test_auto_clipboard_watcher(self, app_instance):
+        app, root, _ = app_instance
+        app.clear_all_items()
+        app.auto_clipboard_var.set(True)
+
+        test_urls = ["https://www.tiktok.com/@user/video/9999999999999999999"]
+        app.handle_auto_clipboard_urls(test_urls)
+
+        assert len(app.queue_items) == 1
+        assert app.queue_items[0]["url"] == test_urls[0]
+
+        # Duplicate URL should not be added twice
+        app.handle_auto_clipboard_urls(test_urls)
+        assert len(app.queue_items) == 1
+
+    def test_embed_mp4_metadata_mocked(self, tmp_path):
+        dummy_mp4 = tmp_path / "test.mp4"
+        dummy_mp4.write_bytes(b"\x00\x00\x00\x20ftypisom" + b"\x00" * 2000)
+
+        with patch("subprocess.run") as mock_subp:
+            mock_subp.return_value = MagicMock(returncode=0)
+            with patch("os.replace") as mock_replace:
+                with patch("os.path.exists", return_value=True), patch("os.path.getsize", return_value=5000):
+                    res = main.embed_mp4_metadata(
+                        str(dummy_mp4),
+                        title="Test Title",
+                        series_title="Test Drama",
+                        author="Test Creator",
+                        ep_num=1,
+                        total_eps=10
+                    )
+                    assert res is True
+                    assert mock_subp.called
+
 
 class TestDownloadWorkerExecution:
     @patch("subprocess.run")
@@ -592,9 +626,8 @@ class TestDownloadWorkerExecution:
         assert app.success_count == 1
         assert os.path.exists(item["filepath"])
         assert os.path.getsize(item["filepath"]) == len(valid_mp4_content)
-        # Ensure no image/poster files are downloaded
-        jpg_files = [f for f in os.listdir(save_dir) if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))]
-        assert len(jpg_files) == 0, f"Expected no images to be downloaded, found: {jpg_files}"
+        # Ensure series poster cover.jpg is downloaded
+        assert os.path.exists(os.path.join(save_dir, "cover.jpg"))
 
     @patch("main.extract_tiktok_metadata")
     def test_simulated_download_stop(self, mock_extract, tk_root, tmp_path):
@@ -751,8 +784,8 @@ class TestAutoUpdater:
             if "releases/latest" in url:
                 resp.status_code = 200
                 resp.json.return_value = {
-                    "tag_name": "v1.1.3",
-                    "body": "Version 1.1.3 update notes",
+                    "tag_name": "v1.1.4",
+                    "body": "Version 1.1.4 update notes",
                     "assets": [
                         {
                             "name": "TikTokDownloader-Windows-AMD64.zip",
@@ -777,8 +810,8 @@ class TestAutoUpdater:
 
         assert len(callback_data) == 1
         update_info = callback_data[0]
-        assert update_info["version"] == "v1.1.3"
-        assert update_info["current_version"] == "1.1.2"
+        assert update_info["version"] == "v1.1.4"
+        assert update_info["current_version"] == "1.1.3"
 
         # Test apply in dev mode safely
         with patch("main.messagebox.showinfo") as mock_box:

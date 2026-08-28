@@ -44,32 +44,46 @@
       }
     }
 
-    var targetApiUrl = "";
+    var baseApiUrl = "";
     if (signedUrl) {
-      targetApiUrl = signedUrl.replace(/count=\d+/, "count=100").replace(/cursor=\d+/, "cursor=0");
+      baseApiUrl = signedUrl.replace(/count=\d+/, "count=100");
     } else {
       var dramaIdMatch = window.location.pathname.match(/\/episode\/(\d+)/) || window.location.pathname.match(/\/shortdrama\/(\d+)/);
       if (dramaIdMatch && dramaIdMatch[1]) {
-        targetApiUrl = "/api/drama/episode/item_list/?drama_id=" + dramaIdMatch[1] + "&cursor=0&count=100";
+        baseApiUrl = "/api/drama/episode/item_list/?drama_id=" + dramaIdMatch[1] + "&count=100";
       }
     }
 
-    if (targetApiUrl) {
+    if (baseApiUrl) {
       updateToast("<span>⚡</span> <span>Instant Fetching All Episodes via Drama API...</span>");
-      var apiResp = await fetch(targetApiUrl, { credentials: "include" });
-      if (apiResp.ok) {
+      var cursor = 0;
+      var hasMore = true;
+      var pageCount = 0;
+
+      while (hasMore && pageCount < 5) {
+        pageCount++;
+        var curUrl = baseApiUrl.includes("cursor=") ? baseApiUrl.replace(/cursor=\d+/, "cursor=" + cursor) : baseApiUrl + "&cursor=" + cursor;
+        var apiResp = await fetch(curUrl, { credentials: "include" });
+        if (!apiResp.ok) break;
+
         var apiJson = await apiResp.json();
         var itemList = (apiJson && apiJson.itemList) || [];
-        if (itemList.length > 0) {
-          for (var idx = 0; idx < itemList.length; idx++) {
-            var item = itemList[idx];
-            var epNum = (item.dramaInfo && item.dramaInfo.dramaEpisodeNumber) || (idx + 1);
-            var authorName = (item.author && item.author.uniqueId) || "tiktok";
-            var videoId = item.id;
-            var canonicalUrl = "https://www.tiktok.com/@" + authorName + "/video/" + videoId;
-            var covUrl = (item.video && item.video.cover && item.video.cover.urlList && item.video.cover.urlList[0]) || "";
-            var vUrl = (item.video && item.video.playAddr) || "";
-            
+        if (itemList.length === 0) break;
+
+        for (var idx = 0; idx < itemList.length; idx++) {
+          var item = itemList[idx];
+          var epNum = (item.dramaInfo && item.dramaInfo.dramaEpisodeNumber) || (results.length + 1);
+          var authorName = (item.author && item.author.uniqueId) || "tiktok";
+          var videoId = item.id;
+          var canonicalUrl = "https://www.tiktok.com/@" + authorName + "/video/" + videoId;
+          var covUrl = (item.video && item.video.cover && item.video.cover.urlList && item.video.cover.urlList[0]) || "";
+          var vUrl = (item.video && item.video.playAddr) || "";
+
+          var exists = false;
+          for (var r = 0; r < results.length; r++) {
+            if (results[r].episode === epNum || results[r].url === canonicalUrl) { exists = true; break; }
+          }
+          if (!exists) {
             results.push({
               episode: epNum,
               url: canonicalUrl,
@@ -78,6 +92,12 @@
               label: "Ep " + epNum
             });
           }
+        }
+
+        if (apiJson.hasMore && apiJson.cursor !== undefined && apiJson.cursor !== cursor) {
+          cursor = apiJson.cursor;
+        } else {
+          hasMore = false;
         }
       }
     }

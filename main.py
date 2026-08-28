@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -1133,6 +1133,43 @@ def verify_video_file(filepath, expected_size=None):
 
     return True, "Valid"
 
+def embed_mp4_metadata(filepath, title=None, series_title=None, author=None, ep_num=None, total_eps=None, cover_path=None):
+    """Embeds title, album/series, artist, track/episode number and cover art into MP4 file."""
+    if not os.path.exists(filepath):
+        return False
+    try:
+        temp_out = f"{filepath}.meta.mp4"
+        cmd = ["ffmpeg", "-y", "-i", filepath]
+        metadata_args = []
+        if title:
+            metadata_args += ["-metadata", f"title={title}"]
+        if series_title:
+            metadata_args += ["-metadata", f"album={series_title}", "-metadata", f"show={series_title}"]
+        if author:
+            metadata_args += ["-metadata", f"artist={author}"]
+        if ep_num is not None:
+            track_str = f"{ep_num}/{total_eps}" if total_eps else str(ep_num)
+            metadata_args += ["-metadata", f"track={track_str}"]
+
+        if cover_path and os.path.exists(cover_path):
+            cmd += ["-i", cover_path, "-map", "0", "-map", "1", "-c", "copy", "-disposition:v:1", "attached_pic"]
+        else:
+            cmd += ["-c", "copy"]
+
+        cmd += metadata_args + [temp_out]
+        creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, creationflags=creation_flags)
+        if p.returncode == 0 and os.path.exists(temp_out) and os.path.getsize(temp_out) > 1000:
+            os.replace(temp_out, filepath)
+            return True
+        elif os.path.exists(temp_out):
+            try:
+                os.remove(temp_out)
+            except Exception:
+                pass
+    except (FileNotFoundError, Exception):
+        pass
+    return False
 
 # ----------------- Main Desktop Application -----------------
 class TikTokDownloaderApp:
@@ -1172,6 +1209,8 @@ class TikTokDownloaderApp:
         
         self.skip_existing_var = tk.BooleanVar(value=True)
         self.save_thumbnails_var = tk.BooleanVar(value=False)
+        self.auto_clipboard_var = tk.BooleanVar(value=True)
+        self.last_clipboard_text = ""
 
         self.setup_styles()
         self.setup_ui()
@@ -1180,6 +1219,7 @@ class TikTokDownloaderApp:
         self.root.after(6000, self.start_silent_update_check)
         self.root.protocol("WM_DELETE_WINDOW", self.on_app_close)
         self.root.after(50, self.load_app_state)
+        self.root.after(500, self.start_clipboard_watcher)
         self.log("💡 Tip: Click '🌐 Browser Setup Helper' on TikTok, or press Ctrl+V / '+ Add Links...' to load drama episodes.", tag="info")
 
     def setup_styles(self):
@@ -1251,6 +1291,7 @@ class TikTokDownloaderApp:
         self.toggle_select_btn = ttk.Button(toolbar, text="☑ Select All", command=self.toggle_select_all_items, style="DarkBtn.TButton")
         self.toggle_select_btn.pack(side="left", padx=2)
         ttk.Button(toolbar, text="🧹 Clear", command=self.clear_all_items, style="DarkBtn.TButton").pack(side="left", padx=2)
+        ttk.Checkbutton(toolbar, text="📋 Auto-Clipboard", variable=self.auto_clipboard_var, style="Dark.TCheckbutton").pack(side="left", padx=(8, 2))
         
         self.count_badge = tk.Label(toolbar, text="0 / 0 Selected", bg="#1e293b", fg=THEME["accent_cyan"], font=("Arial", 9, "bold"), padx=10, pady=2)
         self.count_badge.pack(side="right")
@@ -2208,6 +2249,35 @@ class TikTokDownloaderApp:
         except Exception:
             pass
 
+    def start_clipboard_watcher(self):
+        """Monitors system clipboard in background to auto-capture TikTok URLs."""
+        def watcher_loop():
+            while not self.should_stop:
+                try:
+                    if self.auto_clipboard_var.get():
+                        cb = self.root.clipboard_get()
+                        if cb and cb.strip() and cb != self.last_clipboard_text:
+                            self.last_clipboard_text = cb
+                            matched_urls = TIKTOK_URL_RE.findall(cb)
+                            if matched_urls:
+                                self.root.after(0, self.handle_auto_clipboard_urls, matched_urls)
+                except Exception:
+                    pass
+                time.sleep(0.6)
+
+        t = threading.Thread(target=watcher_loop, daemon=True, name="ClipboardWatcher")
+        t.start()
+
+    def handle_auto_clipboard_urls(self, urls):
+        if not urls or not self.auto_clipboard_var.get():
+            return
+        # Check for unseen URLs
+        existing_urls = {it.get("url") for it in self.queue_items}
+        new_urls = [u for u in urls if u not in existing_urls]
+        if new_urls:
+            self.load_urls_into_queue(new_urls)
+            self.log(f"📋 [Auto-Clipboard] Detected & loaded {len(new_urls)} new TikTok link(s) into queue!", tag="info")
+
     # ----------------- Download Engine & Worker Pool -----------------
     def toggle_download_state(self):
         if self.is_downloading:
@@ -2451,10 +2521,36 @@ class TikTokDownloaderApp:
                             pass
                     os.replace(part_filepath, final_filepath)
 
+                    # Save Movie Poster Art (cover.jpg & folder.jpg) into series folder
+                    cover_local_path = os.path.join(effective_save_dir, "cover.jpg")
+                    if cover_url and not os.path.exists(cover_local_path):
+                        try:
+                            c_resp = worker_session.get(cover_url, timeout=(3, 10))
+                            if c_resp.ok and len(c_resp.content) > 1000:
+                                with open(cover_local_path, "wb") as cf:
+                                    cf.write(c_resp.content)
+                                folder_jpg = os.path.join(effective_save_dir, "folder.jpg")
+                                if not os.path.exists(folder_jpg):
+                                    with open(folder_jpg, "wb") as ff:
+                                        ff.write(c_resp.content)
+                        except Exception:
+                            pass
+
+                    # Embed MP4 Metadata (title, series, artist, episode number, cover artwork)
+                    embed_mp4_metadata(
+                        final_filepath,
+                        title=meta_title or item.get("title"),
+                        series_title=item.get("series_title"),
+                        author=meta_author,
+                        ep_num=idx,
+                        total_eps=self.total_count,
+                        cover_path=cover_local_path if os.path.exists(cover_local_path) else None
+                    )
+
                     # Update item properties to match file on disk
                     item["filename"] = final_filename
                     item["filepath"] = final_filepath
-                    item["cover_path"] = ""
+                    item["cover_path"] = cover_local_path if os.path.exists(cover_local_path) else ""
                     item["title"] = meta_title
 
                     success = True
