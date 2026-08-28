@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.1.7"
+APP_VERSION = "1.1.8"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -2279,12 +2279,12 @@ class TikTokDownloaderApp:
             self.log(f"⚠️ Could not load previous session: {e}", tag="warn")
 
     def on_app_close(self):
-        """Handles application shutdown gracefully."""
+        """Handles application shutdown gracefully and prevents ghost background processes."""
         self.should_stop = True
         self.save_app_state()
         if hasattr(self, "bridge_server") and self.bridge_server:
             try:
-                self.bridge_server.shutdown()
+                self.bridge_server.server_close()
             except Exception:
                 pass
         if hasattr(self, "app_lock") and self.app_lock:
@@ -2296,6 +2296,8 @@ class TikTokDownloaderApp:
             self.root.destroy()
         except Exception:
             pass
+        if "pytest" not in sys.modules and "--smoke-test" not in sys.argv:
+            os._exit(0)
 
     def start_clipboard_watcher(self):
         """Monitors system clipboard in background to auto-capture TikTok URLs."""
@@ -2857,12 +2859,18 @@ def main():
 
     root = tk.Tk()
     app = TikTokDownloaderApp(root)
+    app.app_lock = lock
     try:
         root.mainloop()
     except KeyboardInterrupt:
         pass
     finally:
-        lock.release()
+        try:
+            lock.release()
+        except Exception:
+            pass
+        if "pytest" not in sys.modules and "--smoke-test" not in sys.argv:
+            os._exit(0)
 
 if __name__ == "__main__":
     main()
