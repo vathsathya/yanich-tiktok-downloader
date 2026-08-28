@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.1.8"
+APP_VERSION = "1.1.9"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -1346,37 +1346,9 @@ class TikTokDownloaderApp:
         self.tree_menu.add_command(label="📂 Import Queue / File...", command=self.import_queue)
         self.tree_menu.add_command(label="🗑️ Remove from Queue", command=self.remove_selected_items)
 
-        # 3. Unified Minimalist Control Bar (Folder + Settings consolidated in 1 line)
-        ctrl_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=5)
-        ctrl_card.pack(fill="x", padx=14, pady=2)
-
-        tk.Label(ctrl_card, text="📂", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 9)).pack(side="left")
-        self.folder_entry = ttk.Entry(ctrl_card, textvariable=self.save_dir_var, style="Dark.TEntry")
-        self.folder_entry.pack(side="left", fill="x", expand=True, padx=(4, 6))
-        ttk.Button(ctrl_card, text="Browse", command=self.browse_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
-        ttk.Button(ctrl_card, text="Open", command=self.open_save_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
-
-        tk.Label(ctrl_card, text="⚙️ Threads:", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 9)).pack(side="left", padx=(10, 2))
-        ttk.Spinbox(ctrl_card, from_=1, to=5, textvariable=self.threads_var, width=2, style="Dark.TSpinbox").pack(side="left", padx=2)
-
-        ttk.Checkbutton(ctrl_card, text="Skip Existing", variable=self.skip_existing_var, style="Dark.TCheckbutton").pack(side="left", padx=(8, 2))
-
-        # 4. Main Action & Integrated Progress Card
-        action_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=6)
-        action_card.pack(fill="x", padx=14, pady=2)
-
-        self.toggle_download_btn = ttk.Button(action_card, text="▶ Start Batch Download", command=self.toggle_download_state, style="PrimaryBtn.TButton")
-        self.toggle_download_btn.pack(fill="x", expand=True, pady=(0, 4))
-
-        self.progress_bar = ModernProgressBar(action_card, height=18)
-        self.progress_bar.pack(fill="x")
-
-        self.metrics_label = tk.Label(action_card, text="Status: Ready to start...", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 8), anchor="center")
-        self.metrics_label.pack(fill="x", pady=(2, 0))
-
-        # 5. Compact / Expandable Activity Logs
+        # 3. Compact / Expandable Activity Logs (Directly under Queue Table)
         log_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=4)
-        log_card.pack(fill="x", padx=14, pady=(2, 8))
+        log_card.pack(fill="x", padx=14, pady=(0, 2))
 
         log_head = tk.Frame(log_card, bg=THEME["card_bg"])
         log_head.pack(fill="x", pady=(0, 2))
@@ -1408,6 +1380,34 @@ class TikTokDownloaderApp:
         self.log_text.tag_config("warn", foreground=THEME["accent_amber"])
         self.log_text.tag_config("info", foreground=THEME["accent_cyan"])
         self.log_text.tag_config("skip", foreground=THEME["accent_purple"])
+
+        # 4. Unified Minimalist Control Bar (Folder + Settings consolidated in 1 line)
+        ctrl_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=5)
+        ctrl_card.pack(fill="x", padx=14, pady=2)
+
+        tk.Label(ctrl_card, text="📂", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 9)).pack(side="left")
+        self.folder_entry = ttk.Entry(ctrl_card, textvariable=self.save_dir_var, style="Dark.TEntry")
+        self.folder_entry.pack(side="left", fill="x", expand=True, padx=(4, 6))
+        ttk.Button(ctrl_card, text="Browse", command=self.browse_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
+        ttk.Button(ctrl_card, text="Open", command=self.open_save_folder, style="DarkBtn.TButton").pack(side="left", padx=2)
+
+        tk.Label(ctrl_card, text="⚙️ Threads:", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 9)).pack(side="left", padx=(10, 2))
+        ttk.Spinbox(ctrl_card, from_=1, to=5, textvariable=self.threads_var, width=2, style="Dark.TSpinbox").pack(side="left", padx=2)
+
+        ttk.Checkbutton(ctrl_card, text="Skip Existing", variable=self.skip_existing_var, style="Dark.TCheckbutton").pack(side="left", padx=(8, 2))
+
+        # 5. Main Action & Docked Bottom Status Bar
+        action_card = tk.Frame(self.root, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=10, pady=6)
+        action_card.pack(fill="x", padx=14, pady=(2, 8))
+
+        self.toggle_download_btn = ttk.Button(action_card, text="▶ Start Batch Download", command=self.toggle_download_state, style="PrimaryBtn.TButton")
+        self.toggle_download_btn.pack(fill="x", expand=True, pady=(0, 4))
+
+        self.progress_bar = ModernProgressBar(action_card, height=18)
+        self.progress_bar.pack(fill="x")
+
+        self.metrics_label = tk.Label(action_card, text="Status: Ready to start...", bg=THEME["card_bg"], fg=THEME["text_secondary"], font=("Arial", 8), anchor="center")
+        self.metrics_label.pack(fill="x", pady=(2, 0))
 
     # ----------------- Queue Table Management -----------------
     def on_save_dir_changed(self):
