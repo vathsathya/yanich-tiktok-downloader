@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.0.8"
+APP_VERSION = "1.0.9"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -89,12 +89,12 @@ DEFAULT_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9"
 }
 
-def create_http_session(pool_size=10):
+def create_http_session(pool_size=16):
     session = requests.Session()
     session.headers.update(DEFAULT_HEADERS)
     adapter = HTTPAdapter(
         pool_connections=pool_size,
-        pool_maxsize=pool_size,
+        pool_maxsize=pool_size * 2,
         max_retries=2
     )
     session.mount("http://", adapter)
@@ -2058,7 +2058,7 @@ class TikTokDownloaderApp:
                     final_filepath = os.path.join(save_dir, final_filename)
                     part_filepath = f"{final_filepath}.part"
 
-                    # High-throughput 256KB stream buffering with CDN Range acceleration
+                    # High-throughput 512KB stream buffering with CDN Range acceleration
                     stream_headers = {
                         "Range": "bytes=0-",
                         "Referer": "https://www.tiktok.com/",
@@ -2068,8 +2068,8 @@ class TikTokDownloaderApp:
                     vid_resp.raise_for_status()
                     expected_content_len = int(vid_resp.headers.get("Content-Length", 0))
 
-                    with open(part_filepath, "wb") as f:
-                        for chunk in vid_resp.iter_content(chunk_size=1024 * 256):
+                    with open(part_filepath, "wb", buffering=1024 * 512) as f:
+                        for chunk in vid_resp.iter_content(chunk_size=1024 * 512):
                             if self.should_stop:
                                 break
                             if chunk:
