@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.2.4"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -1308,6 +1308,9 @@ class TikTokDownloaderApp:
         style.configure("DarkBtn.TButton", background=THEME["btn_dark_bg"], foreground=THEME["text_primary"], borderwidth=1, bordercolor=THEME["card_border"], focusthickness=0, padding=5)
         style.map("DarkBtn.TButton", background=[("active", THEME["btn_dark_hover"]), ("disabled", THEME["card_bg"])], foreground=[("disabled", "#4b5563")])
 
+        style.configure("MicroBtn.TButton", background=THEME["btn_dark_bg"], foreground=THEME["text_primary"], font=("Arial", 8), borderwidth=1, bordercolor=THEME["card_border"], focusthickness=0, padding=(5, 1))
+        style.map("MicroBtn.TButton", background=[("active", THEME["btn_dark_hover"]), ("disabled", THEME["card_bg"])], foreground=[("disabled", "#4b5563")])
+
         style.configure("PrimaryBtn.TButton", background=THEME["accent_cyan"], foreground="#090d16", font=("Arial", 10, "bold"), borderwidth=0, padding=8)
         style.map("PrimaryBtn.TButton", background=[("active", "#0891b2"), ("disabled", "#1e293b")], foreground=[("disabled", "#64748b")])
 
@@ -1435,13 +1438,13 @@ class TikTokDownloaderApp:
         act_title_lbl.pack(side="left")
         act_title_lbl.bind("<Button-1>", lambda e: self.toggle_activity_log_view())
 
-        self.toggle_log_btn = ttk.Button(log_head, text="🔼 Expand", command=self.toggle_activity_log_view, style="DarkBtn.TButton")
-        self.toggle_log_btn.pack(side="left", padx=(8, 2))
+        self.toggle_log_btn = ttk.Button(log_head, text="🔼 Expand", command=self.toggle_activity_log_view, style="MicroBtn.TButton")
+        self.toggle_log_btn.pack(side="left", padx=(6, 2))
 
-        ttk.Button(log_head, text="Clear", command=self.clear_logs, style="DarkBtn.TButton").pack(side="right", padx=1)
-        self.copy_failed_btn = ttk.Button(log_head, text="📋 Copy Failed", command=self.copy_failed_links, state="disabled", style="DarkBtn.TButton")
+        ttk.Button(log_head, text="🧹 Clear", command=self.clear_logs, style="MicroBtn.TButton").pack(side="right", padx=1)
+        self.copy_failed_btn = ttk.Button(log_head, text="📋 Copy Failed", command=self.copy_failed_links, state="disabled", style="MicroBtn.TButton")
         self.copy_failed_btn.pack(side="right", padx=1)
-        self.save_log_btn = ttk.Button(log_head, text="💾 Save Log", command=self.save_logs, style="DarkBtn.TButton")
+        self.save_log_btn = ttk.Button(log_head, text="💾 Save", command=self.save_logs, style="MicroBtn.TButton")
         self.save_log_btn.pack(side="right", padx=1)
 
         log_container = tk.Frame(log_card, bg=THEME["log_bg"], highlightbackground=THEME["card_border"], highlightthickness=1)
