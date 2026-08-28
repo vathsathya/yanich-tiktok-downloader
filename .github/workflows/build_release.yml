@@ -92,11 +92,19 @@ jobs:
         run: |
           python package_dist.py
 
-      - name: Upload Build Artifacts
+      - name: Upload Build Artifacts (Linux)
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/*.*
+          path: dist/*.tar.gz
+
+      - name: Upload Build Artifacts (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/*.zip
 
   release:
     name: Publish GitHub Release
@@ -111,12 +119,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release_artifacts
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release_artifacts/**/*
+          files: release_artifacts/*
           draft: false
           prerelease: false
           generate_release_notes: true
