@@ -827,8 +827,8 @@ class TestAutoUpdater:
             if "releases/latest" in url:
                 resp.status_code = 200
                 resp.json.return_value = {
-                    "tag_name": "v1.2.6",
-                    "body": "Version 1.2.6 update notes",
+                    "tag_name": "v1.3.1",
+                    "body": "Version 1.3.1 update notes",
                     "assets": [
                         {
                             "name": "TikTokDownloader-Windows-AMD64.zip",
@@ -853,10 +853,132 @@ class TestAutoUpdater:
 
         assert len(callback_data) == 1
         update_info = callback_data[0]
-        assert update_info["version"] == "v1.2.6"
-        assert update_info["current_version"] == "1.2.5"
+        assert update_info["version"] == "v1.3.1"
+        assert update_info["current_version"] == "1.3.0"
 
         # Test apply in dev mode safely
         with patch("main.messagebox.showinfo") as mock_box:
             res = main.apply_update_and_restart(update_info, app_instance=app)
             assert res is True
+
+    def test_generate_jellyfin_nfo(self, tmp_path):
+        series_dir = str(tmp_path / "Test_Drama")
+        os.makedirs(series_dir, exist_ok=True)
+        res = main.generate_jellyfin_nfo(series_dir, "My Test Drama", 30)
+        assert res is True
+        nfo_file = os.path.join(series_dir, "tvshow.nfo")
+        assert os.path.exists(nfo_file)
+        with open(nfo_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert "<title>My Test Drama</title>" in content
+        assert "<episode>30</episode>" in content
+
+    def test_merge_series_episodes_selection(self, tk_root, tmp_path):
+        app = main.TikTokDownloaderApp(tk_root)
+        app.base_save_dir = str(tmp_path)
+        save_dir = str(tmp_path / "Merge_Drama")
+        os.makedirs(save_dir, exist_ok=True)
+        app.save_dir_var.set(save_dir)
+
+        # Create 2 dummy downloaded files
+        f1 = os.path.join(save_dir, "Drama_Ep_01.mp4")
+        f2 = os.path.join(save_dir, "Drama_Ep_02.mp4")
+        with open(f1, "wb") as f:
+            f.write(b"dummy1" * 1000)
+        with open(f2, "wb") as f:
+            f.write(b"dummy2" * 1000)
+
+        urls = [
+            "https://www.tiktok.com/@user/video/7111111111111111111",
+            "https://www.tiktok.com/@user/video/7222222222222222222"
+        ]
+        app.load_urls_into_queue(urls, series_title="Merge_Drama")
+        app.queue_items[0]["filepath"] = f1
+        app.queue_items[0]["save_dir"] = save_dir
+        app.queue_items[1]["filepath"] = f2
+        app.queue_items[1]["save_dir"] = save_dir
+
+        # Find series iid in tree
+        series_nodes = [iid for iid in app.tree.get_children() if iid.startswith("series_")]
+        assert len(series_nodes) == 1
+
+        with patch("subprocess.run") as mock_run:
+            mock_proc = MagicMock()
+            mock_proc.returncode = 0
+            mock_run.return_value = mock_proc
+
+            # Call merge on series node
+            t = app.merge_series_episodes(series_nodes[0])
+            if t:
+                t.join(timeout=2.0)
+            assert mock_run.called is True
+            args = mock_run.call_args[0][0]
+            assert "concat" in args
+            assert "ffmpeg" in args
+
+
+    def test_series_filename_preservation(self, tk_root, tmp_path):
+        app = main.TikTokDownloaderApp(tk_root)
+        save_dir = str(tmp_path / "Drama_Folder")
+        os.makedirs(save_dir, exist_ok=True)
+        app.save_dir_var.set(save_dir)
+
+        urls = [
+            "https://www.tiktok.com/@epiccreation111/video/7678302552194108688",
+            "https://www.tiktok.com/@epiccreation111/video/7678302569231387905"
+        ]
+        app.load_urls_into_queue(urls, series_title="A little girl comes to an ancient tribe carrying a bag of wonders")
+
+        assert len(app.queue_items) == 2
+        item1 = app.queue_items[0]
+        item2 = app.queue_items[1]
+
+        assert item1["ep_str"] == "01"
+        assert item2["ep_str"] == "02"
+        assert "01.mp4" in item1["filename"]
+        assert "02.mp4" in item2["filename"]
+        assert item1["filename"] != item2["filename"]
+
+    def test_direct_cdn_url_detection(self):
+        cdn_url = "https://v16-webapp-prime.tiktok.com/video/tos/alisg/tos-alisg-pve-0037/o4aIvLOl4UERAgAAMhi0K4iPw7QNklV4YPlBo/?mime_type=video_mp4"
+        assert main.is_direct_tiktok_cdn_url(cdn_url) is True
+        assert main.is_direct_tiktok_cdn_url("blob:https://www.tiktok.com/1234") is False
+        assert main.is_direct_tiktok_cdn_url("https://www.tiktok.com/@user/video/1234567890123456789") is False
+
+    def test_load_direct_cdn_queue(self, tk_root):
+        app = main.TikTokDownloaderApp(tk_root)
+        cdn_url = "https://v16-webapp-prime.tiktok.com/video/tos/alisg/tos-alisg-pve-0037/o4aIvLOl4UERAgAAMhi0K4iPw7QNklV4YPlBo/?mime_type=video_mp4"
+        app.load_urls_into_queue([cdn_url])
+        assert len(app.queue_items) == 1
+        assert app.queue_items[0]["video_url"] == cdn_url
+
+    def test_queue_search_and_filter(self, tk_root):
+        app = main.TikTokDownloaderApp(tk_root)
+        urls = [
+            "https://www.tiktok.com/@user/video/7111111111111111111",
+            "https://www.tiktok.com/@user/video/7222222222222222222"
+        ]
+        app.load_urls_into_queue(urls)
+        app.queue_items[0]["status"] = "✅ Done"
+        app.queue_items[1]["status"] = "❌ Failed"
+
+        # Filter: Done only
+        app.filter_var.set("Done")
+        app.refresh_tree()
+        assert app.tree.exists("1") is True
+        assert app.tree.exists("2") is False
+
+        # Filter: Failed only
+        app.filter_var.set("Failed")
+        app.refresh_tree()
+        assert app.tree.exists("1") is False
+        assert app.tree.exists("2") is True
+
+        # Filter: All with search query
+        app.filter_var.set("All")
+        app.search_var.set("02")
+        app.refresh_tree()
+        assert app.tree.exists("1") is False
+        assert app.tree.exists("2") is True
+
+

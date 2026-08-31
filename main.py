@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.2.5"
+APP_VERSION = "1.3.0"
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):
@@ -580,6 +580,16 @@ class SettingsModal(tk.Toplevel):
         clip_row.pack(fill="x", pady=3)
         ttk.Checkbutton(clip_row, text="Auto-Watch Clipboard (Detect TikTok links & auto-popup)", variable=self.app.auto_clipboard_var, style="Dark.TCheckbutton").pack(side="left")
 
+        # Audio Only Mode
+        audio_row = tk.Frame(sec1, bg=THEME["card_bg"])
+        audio_row.pack(fill="x", pady=3)
+        ttk.Checkbutton(audio_row, text="🎵 Extract Audio Only (.mp3)", variable=self.app.audio_only_var, style="Dark.TCheckbutton").pack(side="left")
+
+        # Plex / Jellyfin NFO Metadata
+        nfo_row = tk.Frame(sec1, bg=THEME["card_bg"])
+        nfo_row.pack(fill="x", pady=3)
+        ttk.Checkbutton(nfo_row, text="📺 Generate Plex / Jellyfin tvshow.nfo & Posters", variable=self.app.generate_nfo_var, style="Dark.TCheckbutton").pack(side="left")
+
         # Section 2: Browser Integration
         sec2 = tk.Frame(body, bg=THEME["card_bg"], highlightbackground=THEME["card_border"], highlightthickness=1, padx=12, pady=10)
         sec2.pack(fill="x", pady=(0, 10))
@@ -1130,22 +1140,40 @@ rm -f "$0"
     return True
 
 
-# ----------------- URL Normalization Helper -----------------
+# ----------------- URL Normalization & Detection Helpers -----------------
+def is_direct_tiktok_cdn_url(url):
+    """Detects if a URL is already a direct TikTok CDN stream (MP4) rather than a webpage."""
+    if not url or not isinstance(url, str):
+        return False
+    u = url.lower().strip()
+    if u.startswith("blob:") or not u.startswith(("http://", "https://")):
+        return False
+    if "mime_type=video_mp4" in u or ".mp4" in u or "/video/tos/" in u:
+        return True
+    if any(h in u for h in ("v16-webapp", "v19-webapp", "tiktokcdn.com", "byteoversea.com", "ibyteimg.com")) and ("tos-" in u or "video" in u):
+        return True
+    return False
+
 def normalize_tiktok_url(url):
     """
     Normalizes a TikTok video URL to match unique video items even if tracking query parameters differ.
-    Supports standard /video/ID, mobile /v/ID.html, shortdrama /shortdrama/episode/SERIES_ID/EP_NUM, and standalone video IDs.
+    Supports standard /video/ID, mobile /v/ID.html, shortdrama /shortdrama/episode/SERIES_ID/EP_NUM, direct CDN TOS streams, and standalone video IDs.
     """
     if not url or not isinstance(url, str):
         return ""
     clean = url.strip()
     
-    # 1. Shortdrama Episode format: /shortdrama/episode/<series_id>/<ep_num>
+    # 1. Direct CDN TOS path: /video/tos/...
+    m_tos = re.search(r'/video/tos/[^/?]+/[^/?]+', clean)
+    if m_tos:
+        return f"tt_cdn_{m_tos.group(0)}"
+
+    # 2. Shortdrama Episode format: /shortdrama/episode/<series_id>/<ep_num>
     m_drama = re.search(r'/shortdrama/episode/(\d+)/(\d+)', clean, re.IGNORECASE)
     if m_drama:
         return f"tt_shortdrama_{m_drama.group(1)}_ep_{m_drama.group(2)}"
 
-    # 2. Standard /video/<id> or /v/<id> format
+    # 3. Standard /video/<id> or /v/<id> format
     m = re.search(r'(?:/video/|/v/|item_id=)(\d{15,22})', clean)
     if not m:
         m = re.search(r'(\d{18,20})', clean)
@@ -1238,6 +1266,30 @@ def embed_mp4_metadata(filepath, title=None, series_title=None, author=None, ep_
         pass
     return False
 
+def generate_jellyfin_nfo(series_dir, series_title, episodes_count=0):
+    """Generates a standard tvshow.nfo file for Plex, Jellyfin, Emby, and Kodi media servers."""
+    if not os.path.exists(series_dir):
+        return False
+    try:
+        nfo_path = os.path.join(series_dir, "tvshow.nfo")
+        clean_title = html.escape(series_title or os.path.basename(series_dir))
+        content = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<tvshow>
+    <title>{clean_title}</title>
+    <originaltitle>{clean_title}</originaltitle>
+    <showtitle>{clean_title}</showtitle>
+    <season>1</season>
+    <episode>{episodes_count}</episode>
+    <plot>TikTok Drama Series: {clean_title}</plot>
+    <studio>TikTok</studio>
+    <genre>Short Drama</genre>
+</tvshow>"""
+        with open(nfo_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return True
+    except Exception:
+        return False
+
 # ----------------- Main Desktop Application -----------------
 class TikTokDownloaderApp:
     def __init__(self, root):
@@ -1277,6 +1329,8 @@ class TikTokDownloaderApp:
         self.skip_existing_var = tk.BooleanVar(value=True)
         self.save_thumbnails_var = tk.BooleanVar(value=False)
         self.auto_clipboard_var = tk.BooleanVar(value=True)
+        self.audio_only_var = tk.BooleanVar(value=False)
+        self.generate_nfo_var = tk.BooleanVar(value=True)
         self.activity_expanded = False
         self.last_clipboard_text = ""
 
@@ -1363,6 +1417,18 @@ class TikTokDownloaderApp:
         self.toggle_select_btn.pack(side="left", padx=2)
         ttk.Button(toolbar, text="🧹 Clear", command=self.clear_all_items, style="DarkBtn.TButton").pack(side="left", padx=2)
         
+        # Search & Status Filter
+        tk.Label(toolbar, text="🔍", bg=THEME["card_bg"], fg=THEME["accent_cyan"], font=("Arial", 9)).pack(side="left", padx=(10, 2))
+        self.search_var = tk.StringVar(value="")
+        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=12, style="Dark.TEntry")
+        self.search_entry.pack(side="left", padx=(0, 4))
+        self.search_entry.bind("<KeyRelease>", lambda e: self.refresh_tree())
+
+        self.filter_var = tk.StringVar(value="All")
+        filter_cb = ttk.Combobox(toolbar, textvariable=self.filter_var, values=["All", "Pending", "Failed", "Done", "Selected"], state="readonly", width=8, style="Dark.TCombobox")
+        filter_cb.pack(side="left", padx=2)
+        filter_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_tree())
+
         self.count_badge = tk.Label(toolbar, text="0 / 0 Selected", bg="#1e293b", fg=THEME["accent_cyan"], font=("Arial", 9, "bold"), padx=10, pady=2)
         self.count_badge.pack(side="right")
 
@@ -1420,6 +1486,7 @@ class TikTokDownloaderApp:
         self.tree_menu.add_command(label="🌐 Open TikTok Link in Browser ↗", command=self.context_open_url)
         self.tree_menu.add_command(label="📂 Show in Folder", command=self.context_show_in_folder)
         self.tree_menu.add_separator()
+        self.tree_menu.add_command(label="🎬 Merge All Episodes to Full Movie (.mp4)...", command=self.merge_series_episodes)
         self.tree_menu.add_command(label="✏️ Rename Series Title / Prefix...", command=self.rename_series_title)
         self.tree_menu.add_command(label="☑ Toggle Selection (Space)", command=self.toggle_selected_rows)
         self.tree_menu.add_command(label="📋 Copy TikTok URL", command=self.context_copy_url)
@@ -1593,12 +1660,15 @@ class TikTokDownloaderApp:
                 cov_url = (it.get("cover_url") or "").strip()
                 if cov_url.startswith("blob:") or not cov_url.startswith(("http://", "https://")):
                     cov_url = ""
+                if not vid_url and is_direct_tiktok_cdn_url(url):
+                    vid_url = url
                 if url:
                     parsed_entries.append({"episode": ep_num, "url": url, "video_url": vid_url, "cover_url": cov_url})
             elif isinstance(it, str):
                 url = it.strip()
                 if url and url.startswith("http"):
-                    parsed_entries.append({"episode": None, "url": url, "video_url": "", "cover_url": ""})
+                    direct_v = url if is_direct_tiktok_cdn_url(url) else ""
+                    parsed_entries.append({"episode": None, "url": url, "video_url": direct_v, "cover_url": ""})
 
         if not parsed_entries:
             return
@@ -1694,6 +1764,28 @@ class TikTokDownloaderApp:
     def refresh_tree(self):
         self.tree.delete(*self.tree.get_children())
         
+        filter_status = getattr(self, "filter_var", None)
+        filter_val = filter_status.get() if filter_status else "All"
+        search_query = getattr(self, "search_var", None)
+        search_str = search_query.get().strip().lower() if search_query else ""
+
+        def item_matches(it):
+            st = it.get("status", "")
+            if filter_val == "Pending" and "Pending" not in st:
+                return False
+            elif filter_val == "Failed" and ("Failed" not in st and "Error" not in st):
+                return False
+            elif filter_val == "Done" and (st not in ("✅ Done", "⏭️ Skipped")):
+                return False
+            elif filter_val == "Selected" and not it.get("selected", False):
+                return False
+
+            if search_str:
+                combined_txt = f"{it.get('idx', '')} {it.get('ep_str', '')} {it.get('title', '')} {it.get('series_title', '')}".lower()
+                if search_str not in combined_txt:
+                    return False
+            return True
+
         # Group items by series_title
         series_order = []
         series_items_map = {}
@@ -1705,13 +1797,17 @@ class TikTokDownloaderApp:
                 if s_title not in series_items_map:
                     series_order.append(s_title)
                     series_items_map[s_title] = []
-                series_items_map[s_title].append(item)
+                if item_matches(item):
+                    series_items_map[s_title].append(item)
             else:
-                standalone_items.append(item)
+                if item_matches(item):
+                    standalone_items.append(item)
 
         # 1. Insert Drama Series as Collapsible Parent Groups
         for s_title in series_order:
             s_items = series_items_map[s_title]
+            if not s_items:
+                continue
             safe_slug = re.sub(r'[^a-zA-Z0-9_\u1780-\u17FF]', '_', s_title)[:40].strip('_') or "drama"
             series_iid = f"series_{safe_slug}_{abs(hash(s_title)) % 100000}"
 
@@ -1970,6 +2066,92 @@ class TikTokDownloaderApp:
         self.update_row_in_tree(idx, status="Pending")
         self.log(f"🔁 Retrying download for Episode {target_item.get('ep_str', idx)}...", tag="info")
         self.run_batch_job([target_item], save_dir, 1)
+
+    def merge_series_episodes(self, series_iid=None):
+        """Losslessly concatenates all downloaded episodes in a drama series into a single full movie MP4 file."""
+        if not series_iid:
+            selected = self.tree.selection()
+            if selected:
+                series_iid = selected[0]
+        
+        if not series_iid:
+            messagebox.showinfo("Select Series", "Please select a Drama Series group in the table to merge.")
+            return
+
+        # If user selected an episode inside a series, find its parent series node
+        if not series_iid.startswith("series_"):
+            parent = self.tree.parent(series_iid)
+            if parent and parent.startswith("series_"):
+                series_iid = parent
+            else:
+                messagebox.showinfo("Select Series", "Please select a Drama Series group to merge all its episodes.")
+                return
+
+        children = self.tree.get_children(series_iid)
+        if not children:
+            messagebox.showwarning("No Episodes", "No episodes found in this drama group.")
+            return
+
+        s_items = [it for it in self.queue_items if str(it["idx"]) in children]
+        downloaded = [it for it in s_items if os.path.exists(it.get("filepath", ""))]
+
+        if not downloaded:
+            messagebox.showwarning("Not Downloaded", "Please download the episodes first before merging into a full movie.")
+            return
+
+        def ep_sort_key(it):
+            try:
+                return int(it.get("ep_str", it["idx"]))
+            except Exception:
+                return it["idx"]
+
+        downloaded.sort(key=ep_sort_key)
+
+        series_title = s_items[0].get("series_title") or self.tree.item(series_iid, "text").replace("🎬", "").strip()
+        save_dir = s_items[0].get("save_dir") or self.save_dir_var.get().strip()
+
+        clean_name = re.sub(r'[\\/:*?"<>|\n\r\t]', '_', series_title).strip()
+        out_filename = f"{clean_name}_Full_Movie.mp4"
+        out_filepath = os.path.join(save_dir, out_filename)
+
+        os.makedirs(save_dir, exist_ok=True)
+        concat_list_path = os.path.join(save_dir, "concat_list.tmp")
+        try:
+            with open(concat_list_path, "w", encoding="utf-8") as f:
+                for it in downloaded:
+                    safe_p = it["filepath"].replace("\\", "/").replace("'", "'\\''")
+                    f.write(f"file '{safe_p}'\n")
+
+            self.log(f"🎬 Merging {len(downloaded)} episodes into Full Movie: {out_filename}...", tag="info")
+            
+            def run_concat():
+                cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", "-movflags", "+faststart", out_filepath]
+                creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creation_flags)
+                try:
+                    if os.path.exists(concat_list_path):
+                        os.remove(concat_list_path)
+                except Exception:
+                    pass
+
+                try:
+                    if proc.returncode == 0 and os.path.exists(out_filepath) and os.path.getsize(out_filepath) > 10000:
+                        mb_size = os.path.getsize(out_filepath) / (1024 * 1024)
+                        self.root.after(0, lambda: self.log(f"🎉 Successfully merged {len(downloaded)} episodes into {out_filename} ({mb_size:.1f} MB)!", tag="success"))
+                        self.root.after(0, lambda: messagebox.showinfo("Merge Complete", f"🎉 Successfully created Full Movie ({len(downloaded)} episodes):\n\n{out_filename} ({mb_size:.1f} MB)\n\nSaved to:\n{out_filepath}"))
+                    else:
+                        err_msg = proc.stderr.decode("utf-8", errors="ignore")
+                        self.root.after(0, lambda: self.log(f"❌ Failed to merge episodes: {err_msg[:200]}", tag="error"))
+                        self.root.after(0, lambda: messagebox.showerror("Merge Failed", f"Could not merge episodes with FFmpeg:\n{err_msg[:300]}"))
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=run_concat, daemon=True)
+            t.start()
+            return t
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start merge process: {e}")
+            return None
 
     def _open_dir(self, folder):
         try:
@@ -2428,8 +2610,10 @@ class TikTokDownloaderApp:
         # Update filepaths in selected items
         prefix = self.prefix_var.get().strip()
         for it in selected_items:
-            it["filename"] = f"{prefix}{it['ep_str']}.mp4"
-            it["filepath"] = os.path.join(save_dir, it["filename"])
+            eff_dir = it.get("save_dir") or save_dir
+            if not it.get("filename"):
+                it["filename"] = f"{prefix}{it.get('ep_str', it['idx'])}.mp4" if prefix else f"TikTok_Video_{it.get('ep_str', it['idx'])}.mp4"
+            it["filepath"] = os.path.join(eff_dir, it["filename"])
             it["cover_path"] = ""
             it["status"] = "Pending"
             if self.tree.exists(str(it["idx"])):
@@ -2599,6 +2783,13 @@ class TikTokDownloaderApp:
                     if raw_title:
                         clean_title = re.sub(r'[\\/:*?"<>|\n\r\t]', '_', raw_title).strip()
                         clean_title = re.sub(r'\s+', ' ', clean_title)[:140].strip()
+                    else:
+                        clean_title = ""
+
+                    if item.get("series_title") or item.get("ep_str"):
+                        final_filename = filename
+                        meta_title = clean_title if clean_title else os.path.splitext(filename)[0]
+                    elif clean_title:
                         final_filename = f"{clean_title}.mp4"
                         meta_title = clean_title
                     else:
@@ -2608,17 +2799,45 @@ class TikTokDownloaderApp:
                     final_filepath = os.path.join(effective_save_dir, final_filename)
                     part_filepath = f"{final_filepath}.part"
 
-                    # High-throughput 512KB stream buffering with CDN Range acceleration
+                    # Resumable Stream Downloader with CDN Range Acceleration (HTTP 206)
+                    existing_bytes = 0
+                    if os.path.exists(part_filepath):
+                        try:
+                            existing_bytes = os.path.getsize(part_filepath)
+                        except Exception:
+                            existing_bytes = 0
+
                     stream_headers = {
-                        "Range": "bytes=0-",
                         "Referer": "https://www.tiktok.com/",
                         "Accept-Encoding": "identity"
                     }
-                    vid_resp = worker_session.get(video_url, headers=stream_headers, stream=True, timeout=(5, 30))
-                    vid_resp.raise_for_status()
-                    expected_content_len = int(vid_resp.headers.get("Content-Length", 0))
+                    if existing_bytes > 0:
+                        stream_headers["Range"] = f"bytes={existing_bytes}-"
+                    else:
+                        stream_headers["Range"] = "bytes=0-"
 
-                    with open(part_filepath, "wb", buffering=1024 * 512) as f:
+                    vid_resp = worker_session.get(video_url, headers=stream_headers, stream=True, timeout=(5, 30))
+                    
+                    # If signed CDN token expired or returned 403/410, invalidate cached stream URL for fresh extraction on retry
+                    if vid_resp.status_code in (401, 403, 410):
+                        item["video_url"] = ""
+                        video_url = ""
+                        vid_resp.raise_for_status()
+
+                    vid_resp.raise_for_status()
+
+                    # Handle 206 Partial Content (Resume) vs 200 OK (Full stream)
+                    if vid_resp.status_code == 206:
+                        open_mode = "ab"
+                        range_content_len = int(vid_resp.headers.get("Content-Length", 0))
+                        expected_content_len = existing_bytes + range_content_len
+                        downloaded_bytes = existing_bytes
+                    else:
+                        open_mode = "wb"
+                        expected_content_len = int(vid_resp.headers.get("Content-Length", 0))
+                        downloaded_bytes = 0
+
+                    with open(part_filepath, open_mode, buffering=1024 * 512) as f:
                         for chunk in vid_resp.iter_content(chunk_size=1024 * 512):
                             if self.should_stop:
                                 break
@@ -2681,6 +2900,20 @@ class TikTokDownloaderApp:
                         cover_path=cover_local_path if os.path.exists(cover_local_path) else None
                     )
 
+                    # Optional: Generate Plex / Jellyfin tvshow.nfo
+                    if self.generate_nfo_var.get() and item.get("series_title"):
+                        generate_jellyfin_nfo(effective_save_dir, item.get("series_title"), self.total_count)
+
+                    # Optional: Extract Audio-Only MP3
+                    if self.audio_only_var.get():
+                        try:
+                            mp3_path = os.path.splitext(final_filepath)[0] + ".mp3"
+                            cmd_audio = ["ffmpeg", "-y", "-i", final_filepath, "-vn", "-c:a", "libmp3lame", "-q:a", "2", mp3_path]
+                            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                            subprocess.run(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15, creationflags=creation_flags)
+                        except Exception:
+                            pass
+
                     # Update item properties to match file on disk
                     item["filename"] = final_filename
                     item["filepath"] = final_filepath
@@ -2727,8 +2960,20 @@ class TikTokDownloaderApp:
         percent = (self.processed_count / self.total_count * 100) if self.total_count else 0
         self.progress_bar.set_progress(self.processed_count, self.total_count)
 
+        remaining_items = max(0, self.total_count - self.processed_count)
+        if self.processed_count > 0 and remaining_items > 0:
+            avg_sec_per_item = elapsed / self.processed_count
+            eta_secs = int(remaining_items * avg_sec_per_item)
+            mins, secs = divmod(eta_secs, 60)
+            eta_str = f"~{mins}m {secs}s" if mins > 0 else f"~{secs}s"
+            eta_display = f" | ETA: {eta_str}"
+        elif remaining_items == 0 and self.total_count > 0:
+            eta_display = " | Finishing..."
+        else:
+            eta_display = ""
+
         self.metrics_label.config(
-            text=f"Progress: {self.processed_count}/{self.total_count} ({percent:.1f}%) | Success: {self.success_count} | Failed: {failed_count} | Total: {mb_downloaded:.1f} MB @ {speed_mb:.2f} MB/s"
+            text=f"Progress: {self.processed_count}/{self.total_count} ({percent:.1f}%) | Success: {self.success_count} | Failed: {failed_count} | Speed: {speed_mb:.2f} MB/s{eta_display}"
         )
 
     def supervisor_loop(self):
