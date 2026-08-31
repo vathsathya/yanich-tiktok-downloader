@@ -1,10 +1,14 @@
-# TikTok Drama & Video Batch Downloader Pro v1.3.0 (with 1-Click Browser Bridge)
+# TikTok Drama & Video Batch Downloader Pro (with 1-Click Browser Bridge)
+
+[![GitHub Release](https://img.shields.io/github/v/release/vathsathya/yanich-tiktok-downloader?color=0284c7&label=Release)](https://github.com/vathsathya/yanich-tiktok-downloader/releases)
+[![Build & Release](https://github.com/vathsathya/yanich-tiktok-downloader/actions/workflows/build_release.yml/badge.svg)](https://github.com/vathsathya/yanich-tiktok-downloader/actions/workflows/build_release.yml)
+[![Tests](https://img.shields.io/badge/tests-49%20passed-brightgreen.svg)](https://github.com/vathsathya/yanich-tiktok-downloader)
 
 កម្មវិធី Desktop និង Browser Integration សម្រាប់ស្កេន និងទាញយកវីដេអូភាគ TikTok Drama (កម្រិត HD No-Watermark) ដោយស្វ័យប្រវត្តិតែមួយ Click។
 
 ---
 
-### ១. លក្ខណៈសម្បត្តិពិសេស (Features in v1.3.0)
+### ១. លក្ខណៈសម្បត្តិពិសេស (Features)
 - ⚡ **បើកលឿនបំផុត (Fast Startup < 0.1s)**៖ ប្រើប្រាស់ `tkinter` ស្រាល មិនស៊ី RAM (~២០ MB)។
 - 🌐 **1-Click Browser Bridge (Port 54321)**៖ ស្កេនភាគលើ Browser រួចចុច **"🚀 Send to Desktop App"** វានឹងរត់ចូលកម្មវិធី Desktop ភ្លាមៗដោយមិនបាច់ Copy/Paste ដោយដៃ។
 - 🎬 **Lossless Episode Merger**៖ ផ្គុំគ្រប់ភាគទាំងអស់ចូលគ្នាជា Full Movie (`{Title}_Full_Movie.mp4`) ក្នុងរយៈពេលត្រឹមតែ ២ វិនាទី (ប្រើ FFmpeg Concat ដោយមិនធ្លាក់គុណភាព)។

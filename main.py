@@ -24,7 +24,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------- Configuration & Constants -----------------
-APP_VERSION = "1.3.0"
+try:
+    from version import VERSION as APP_VERSION
+except ImportError:
+    APP_VERSION = "1.3.0"
+
 GITHUB_REPO = "vathsathya/yanich-tiktok-downloader"
 
 def parse_version_tuple(v_str):

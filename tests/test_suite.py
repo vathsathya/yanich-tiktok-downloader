@@ -822,13 +822,22 @@ class TestAutoUpdater:
         staging = str(tmp_path / "updates")
         dummy_zip_content = b"PK\x05\x06" + b"\x00" * 18
 
+        current_v = main.APP_VERSION
+        parts = current_v.split(".")
+        try:
+            higher_patch = int(parts[-1]) + 1
+            higher_v = ".".join(parts[:-1] + [str(higher_patch)])
+        except Exception:
+            higher_v = "99.0.0"
+        mock_tag = f"v{higher_v}"
+
         def mock_get_side_effect(url, **kwargs):
             resp = MagicMock()
             if "releases/latest" in url:
                 resp.status_code = 200
                 resp.json.return_value = {
-                    "tag_name": "v1.3.1",
-                    "body": "Version 1.3.1 update notes",
+                    "tag_name": mock_tag,
+                    "body": f"Version {higher_v} update notes",
                     "assets": [
                         {
                             "name": "TikTokDownloader-Windows-AMD64.zip",
@@ -853,13 +862,27 @@ class TestAutoUpdater:
 
         assert len(callback_data) == 1
         update_info = callback_data[0]
-        assert update_info["version"] == "v1.3.1"
-        assert update_info["current_version"] == "1.3.0"
+        assert update_info["version"] == mock_tag
+        assert update_info["current_version"] == main.APP_VERSION
 
         # Test apply in dev mode safely
         with patch("main.messagebox.showinfo") as mock_box:
             res = main.apply_update_and_restart(update_info, app_instance=app)
             assert res is True
+
+    def test_sync_extension_version(self, tmp_path):
+        import package_dist
+        import json
+        manifest_file = tmp_path / "manifest.json"
+        with open(manifest_file, "w", encoding="utf-8") as f:
+            json.dump({"manifest_version": 3, "version": "0.0.1"}, f)
+        
+        with patch("package_dist.EXT_DIR", str(tmp_path)):
+            package_dist.sync_extension_version()
+        
+        with open(manifest_file, "r", encoding="utf-8") as f:
+            updated = json.load(f)
+        assert updated["version"] == main.APP_VERSION
 
     def test_generate_jellyfin_nfo(self, tmp_path):
         series_dir = str(tmp_path / "Test_Drama")

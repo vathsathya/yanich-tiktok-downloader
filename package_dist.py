@@ -9,11 +9,32 @@ import shutil
 import zipfile
 import tarfile
 import platform
+import json
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(BASE_DIR, "dist")
 EXT_DIR = os.path.join(BASE_DIR, "extension")
 APP_DIST_DIR = os.path.join(DIST_DIR, "TikTokDownloader")
+
+def sync_extension_version():
+    """Synchronizes extension/manifest.json with version.py."""
+    manifest_path = os.path.join(EXT_DIR, "manifest.json")
+    if not os.path.exists(manifest_path):
+        return
+    try:
+        try:
+            from version import VERSION
+        except ImportError:
+            return
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        manifest["version"] = VERSION
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+            f.write("\n")
+        print(f"[*] Synchronized Chrome Extension manifest version to v{VERSION}")
+    except Exception as e:
+        print(f"[-] Failed to sync manifest version: {e}")
 
 def pack_extension():
     """Packs the Chrome Extension into a clean zip archive."""
@@ -21,6 +42,7 @@ def pack_extension():
         print("[-] Extension directory not found, skipping extension packaging.")
         return None
     
+    sync_extension_version()
     zip_path = os.path.join(DIST_DIR, "TikTok-Extractor-Extension.zip")
     print(f"[*] Packaging Chrome Extension to: {zip_path}")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
